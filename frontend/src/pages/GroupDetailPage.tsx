@@ -305,10 +305,14 @@ export function GroupDetailPage() {
         <div className="space-y-2.5">
           {members.map((m) => (
             <div key={m.user_id} className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-pastel-purple/20 to-pastel-lavender/20">
-                <span className="text-sm font-bold text-pastel-purple-deep">
-                  {m.display_name.charAt(0).toUpperCase()}
-                </span>
+              <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-pastel-purple/20 to-pastel-lavender/20">
+                {m.profile_picture ? (
+                  <img src={m.profile_picture} alt={m.display_name} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-sm font-bold text-pastel-purple-deep">
+                    {m.display_name.charAt(0).toUpperCase()}
+                  </span>
+                )}
               </div>
               <div className="flex-1">
                 <p className="text-sm font-semibold text-ink">

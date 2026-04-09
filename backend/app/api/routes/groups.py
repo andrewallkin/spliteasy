@@ -328,6 +328,7 @@ async def list_members(
         result.append(GroupMemberOut(
             user_id=m.user_id,
             display_name=u.display_name if u else "unknown",
+            profile_picture=u.profile_picture if u else None,
             role=m.role.value if hasattr(m.role, "value") else str(m.role),
             joined_at=m.joined_at,
         ))

@@ -59,8 +59,8 @@ export function ProfilePage() {
   const handlePicture = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) {
-      addToast('error', 'Image must be under 2 MB')
+    if (file.size > 10 * 1024 * 1024) {
+      addToast('error', 'Image must be under 10 MB')
       return
     }
     setUploadingPic(true)
