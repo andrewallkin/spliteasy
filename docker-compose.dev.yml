@@ -1,0 +1,68 @@
+services:
+  # Persistent database (default development mode)
+  postgres:
+    image: postgres:15
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-splitwise} -d ${POSTGRES_DB:-splitwise}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [postgres-net]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file:
+      - .env
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/alembic/versions:/app/alembic/versions
+      - ./data:/app/data
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks: [default, postgres-net]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      API_PROXY_ORIGIN: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    ports:
+      - "${FRONTEND_PORT:-3000}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [default]
+
+volumes:
+  postgres_data:
+
+networks:
+  postgres-net:
+    driver: bridge

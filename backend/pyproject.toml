@@ -1,0 +1,48 @@
+[project]
+name = "splitwise-api"
+version = "0.1.0"
+description = "Splitwise MVP backend"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic",
+  "asyncpg",
+  "bcrypt>=4.0.1,<4.1",
+  "email-validator",
+  "fastapi",
+  "httpx",
+  "openai>=1.76",
+  "passlib[bcrypt]",
+  "pillow",
+  "pillow-heif",
+  "pydantic-settings",
+  "python-jose[cryptography]",
+  "python-magic",
+  "python-multipart",
+  "sqlalchemy",
+  "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
