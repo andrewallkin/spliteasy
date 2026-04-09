@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
-import { getErrorMessage } from '@/utils/errors'
+import { getEmailAllowlistRejectionMessage, getErrorMessage } from '@/utils/errors'
 
 const schema = z
   .object({
@@ -45,7 +45,12 @@ export function RegisterPage() {
       await registerAccount(values.email, values.displayName, values.password)
       addToast('success', 'Account created')
     } catch (error) {
-      addToast('error', getErrorMessage(error, 'Unable to register'))
+      const allowlistMsg = getEmailAllowlistRejectionMessage(error)
+      if (allowlistMsg) {
+        window.alert(allowlistMsg)
+      } else {
+        addToast('error', getErrorMessage(error, 'Unable to register'))
+      }
     } finally {
       setIsSubmitting(false)
     }

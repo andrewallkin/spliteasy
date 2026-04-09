@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     openai_api_key: str
     openai_model: str
 
+    authorized_emails: str = ""
+
     @property
     def database_url(self) -> str:
         user = quote_plus(self.postgres_user)
@@ -39,6 +41,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_email_set(self) -> frozenset[str]:
+        return frozenset(
+            email.strip().lower()
+            for email in self.authorized_emails.split(",")
+            if email.strip()
+        )
 
 
 @lru_cache
