@@ -266,8 +266,6 @@ function blankReceiptItem(key: string): ReceiptItemDraft {
 
 export function ReceiptDetailModal({
   isOpen,
-  receiptId,
-  groupId,
   nickname,
   merchantName,
   totalAmount,
@@ -278,7 +276,6 @@ export function ReceiptDetailModal({
   isLoading,
   isSaving,
   isDeleting,
-  nextItemKey,
   onClose,
   onNicknameChange,
   onMerchantNameChange,
@@ -292,8 +289,6 @@ export function ReceiptDetailModal({
   onDelete,
 }: {
   isOpen: boolean
-  receiptId: string
-  groupId: string
   nickname: string
   merchantName: string
   totalAmount: string
@@ -304,7 +299,6 @@ export function ReceiptDetailModal({
   isLoading: boolean
   isSaving: boolean
   isDeleting: boolean
-  nextItemKey: number
   onClose: () => void
   onNicknameChange: (v: string) => void
   onMerchantNameChange: (v: string) => void
@@ -1356,8 +1350,6 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
 
       <ReceiptDetailModal
         isOpen={receiptModal.isOpen}
-        receiptId={receiptModal.receiptId}
-        groupId={receiptModal.groupId}
         nickname={receiptModal.nickname}
         merchantName={receiptModal.merchantName}
         totalAmount={receiptModal.totalAmount}
@@ -1368,7 +1360,6 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         isLoading={receiptModal.isLoading}
         isSaving={receiptModal.isSaving}
         isDeleting={receiptModal.isDeleting}
-        nextItemKey={receiptModal.nextItemKey}
         onClose={receiptModal.closeReceiptModal}
         onNicknameChange={receiptModal.setNickname}
         onMerchantNameChange={receiptModal.setMerchantName}

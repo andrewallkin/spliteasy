@@ -98,13 +98,6 @@ export function ReceiptUploadPage() {
   const me = members[0]
   const partner = members[1]
 
-  function assigneeLabel(assignee: string) {
-    if (assignee === 'split') return 'Split'
-    if (me && assignee === me.user_id) return me.display_name
-    if (partner && assignee === partner.user_id) return partner.display_name
-    return 'Split'
-  }
-
   // Live split summary
   const splitSummary = useMemo(() => {
     if (!me || !partner) return null

@@ -185,8 +185,6 @@ function GlobalHistoryPage() {
 
       <ReceiptDetailModal
         isOpen={receiptModal.isOpen}
-        receiptId={receiptModal.receiptId}
-        groupId={receiptModal.groupId}
         nickname={receiptModal.nickname}
         merchantName={receiptModal.merchantName}
         totalAmount={receiptModal.totalAmount}
@@ -197,7 +195,6 @@ function GlobalHistoryPage() {
         isLoading={receiptModal.isLoading}
         isSaving={receiptModal.isSaving}
         isDeleting={receiptModal.isDeleting}
-        nextItemKey={receiptModal.nextItemKey}
         onClose={receiptModal.closeReceiptModal}
         onNicknameChange={receiptModal.setNickname}
         onMerchantNameChange={receiptModal.setMerchantName}
