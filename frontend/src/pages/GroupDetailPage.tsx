@@ -147,7 +147,7 @@ export function GroupDetailPage() {
     try {
       await deleteGroup(id)
       addToast('success', 'Group deleted')
-      navigate('/groups')
+      navigate('/')
     } catch (error) {
       addToast('error', getErrorMessage(error, 'Unable to delete group'))
     } finally {

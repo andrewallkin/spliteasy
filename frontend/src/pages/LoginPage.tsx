@@ -30,7 +30,7 @@ export function LoginPage() {
   } = useForm<FormValues>({ resolver: zodResolver(schema) })
 
   if (isAuthenticated) {
-    const redirect = (location.state as { from?: string } | undefined)?.from ?? '/groups'
+    const redirect = (location.state as { from?: string } | undefined)?.from ?? '/'
     return <Navigate to={redirect} replace />
   }
 

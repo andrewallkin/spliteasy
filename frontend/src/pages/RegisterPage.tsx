@@ -36,7 +36,7 @@ export function RegisterPage() {
   } = useForm<FormValues>({ resolver: zodResolver(schema) })
 
   if (isAuthenticated) {
-    return <Navigate to="/groups" replace />
+    return <Navigate to="/" replace />
   }
 
   const onSubmit = handleSubmit(async (values) => {

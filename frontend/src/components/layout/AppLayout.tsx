@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 
 const tabs = [
   {
-    to: '/groups',
+    to: '/',
     label: 'Home',
     icon: (active: boolean) => (
       <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
@@ -40,8 +40,9 @@ const tabs = [
 ]
 
 function tabActive(pathname: string, tabTo: string): boolean {
-  if (tabTo === '/groups') {
+  if (tabTo === '/') {
     return (
+      pathname === '/' ||
       pathname === '/groups' ||
       /^\/groups\/[^/]+$/.test(pathname) ||
       /^\/groups\/[^/]+\/settle$/.test(pathname)
@@ -56,7 +57,7 @@ function tabActive(pathname: string, tabTo: string): boolean {
   if (tabTo === '/profile') {
     return pathname.startsWith('/profile')
   }
-  return pathname.startsWith(tabTo)
+  return pathname === tabTo || pathname.startsWith(`${tabTo}/`)
 }
 
 export function AppLayout() {

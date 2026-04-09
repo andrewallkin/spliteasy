@@ -25,8 +25,8 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route path="/join/:groupId" element={<JoinGroupPage />} />
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Navigate to="/groups" replace />} />
-            <Route path="/groups" element={<GroupListPage />} />
+            <Route path="/" element={<GroupListPage />} />
+            <Route path="/groups" element={<Navigate to="/" replace />} />
             <Route path="/groups/:id" element={<GroupDetailPage />} />
             <Route path="/groups/:id/upload" element={<ReceiptUploadPage />} />
             <Route path="/groups/:id/manual" element={<ManualEntryPage />} />
