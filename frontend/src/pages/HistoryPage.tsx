@@ -13,8 +13,10 @@ import {
   useReceiptDetailModal,
 } from '@/components/history/GroupScopedHistory'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useToast } from '@/context/ToastContext'
+import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type { Group, GroupHistoryItem } from '@/types/models'
 import { getErrorMessage } from '@/utils/errors'
 
@@ -36,6 +38,7 @@ function GlobalHistoryPage() {
   const [items, setItems] = useState<GroupHistoryItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
+  const deleteConfirm = useConfirmDialog()
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true)
@@ -51,8 +54,8 @@ function GlobalHistoryPage() {
     }
   }, [filter, selectedGroupId, addToast])
 
-  const entryModal = useExpenseEntryModal(loadHistory)
-  const receiptModal = useReceiptDetailModal(loadHistory)
+  const entryModal = useExpenseEntryModal(loadHistory, deleteConfirm.confirm)
+  const receiptModal = useReceiptDetailModal(loadHistory, deleteConfirm.confirm)
 
   useEffect(() => {
     async function loadGroups() {
@@ -206,6 +209,10 @@ function GlobalHistoryPage() {
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+      />
+      <ConfirmDialog
+        {...deleteConfirm.dialogProps}
+        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting}
       />
     </div>
   )
