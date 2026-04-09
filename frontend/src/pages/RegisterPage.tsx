@@ -47,7 +47,7 @@ export function RegisterPage() {
     } catch (error) {
       const allowlistMsg = getEmailAllowlistRejectionMessage(error)
       if (allowlistMsg) {
-        window.alert(allowlistMsg)
+        addToast('error', allowlistMsg)
       } else {
         addToast('error', getErrorMessage(error, 'Unable to register'))
       }

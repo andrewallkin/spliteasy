@@ -1,7 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
-import { ToastViewport } from '@/components/ui/ToastViewport'
-
 const tabs = [
   {
     to: '/groups',
@@ -106,7 +104,6 @@ export function AppLayout() {
           })}
         </ul>
       </nav>
-      <ToastViewport />
     </div>
   )
 }

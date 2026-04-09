@@ -42,7 +42,7 @@ export function LoginPage() {
     } catch (error) {
       const allowlistMsg = getEmailAllowlistRejectionMessage(error)
       if (allowlistMsg) {
-        window.alert(allowlistMsg)
+        addToast('error', allowlistMsg)
       } else {
         addToast('error', getErrorMessage(error, 'Unable to log in'))
       }

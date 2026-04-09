@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
+import { ToastViewport } from '@/components/ui/ToastViewport'
 import { AddExpensePage } from '@/pages/AddExpensePage'
 import { GroupDetailPage } from '@/pages/GroupDetailPage'
 import { GroupListPage } from '@/pages/GroupListPage'
@@ -38,6 +39,7 @@ export function AppRouter() {
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <ToastViewport />
     </BrowserRouter>
   )
 }
