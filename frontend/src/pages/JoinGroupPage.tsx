@@ -50,8 +50,8 @@ export function JoinGroupPage() {
           </div>
           <h2 className="text-lg font-bold text-ink">Invalid Invite Link</h2>
           <p className="text-sm text-ink-secondary">{errorMsg}</p>
-          <Button onClick={() => navigate('/groups', { replace: true })} className="w-full">
-            Go to Groups
+          <Button onClick={() => navigate('/', { replace: true })} className="w-full">
+            Go Home
           </Button>
         </Card>
       </div>
@@ -91,7 +91,7 @@ export function JoinGroupPage() {
             <Button onClick={handleJoin} className="w-full" disabled={status === 'success'}>
               Accept Invitation
             </Button>
-            <Button variant="ghost" onClick={() => navigate('/groups', { replace: true })} className="w-full">
+            <Button variant="ghost" onClick={() => navigate('/', { replace: true })} className="w-full">
               Cancel
             </Button>
           </div>

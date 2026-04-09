@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
+import { ToastViewport } from '@/components/ui/ToastViewport'
 import { AddExpensePage } from '@/pages/AddExpensePage'
 import { GroupDetailPage } from '@/pages/GroupDetailPage'
 import { GroupListPage } from '@/pages/GroupListPage'
@@ -24,8 +25,8 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route path="/join/:groupId" element={<JoinGroupPage />} />
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Navigate to="/groups" replace />} />
-            <Route path="/groups" element={<GroupListPage />} />
+            <Route path="/" element={<GroupListPage />} />
+            <Route path="/groups" element={<Navigate to="/" replace />} />
             <Route path="/groups/:id" element={<GroupDetailPage />} />
             <Route path="/groups/:id/upload" element={<ReceiptUploadPage />} />
             <Route path="/groups/:id/manual" element={<ManualEntryPage />} />
@@ -38,6 +39,7 @@ export function AppRouter() {
         </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <ToastViewport />
     </BrowserRouter>
   )
 }

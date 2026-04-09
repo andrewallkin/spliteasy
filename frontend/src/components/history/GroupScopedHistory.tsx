@@ -14,9 +14,11 @@ import {
 import { api } from '@/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useToast } from '@/context/ToastContext'
+import { type ConfirmDialogOptions, useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type {
   GroupHistoryEntryData,
   GroupHistoryItem,
@@ -58,6 +60,7 @@ export function formatHistoryTime(ts: string) {
 }
 
 export type SplitMode = 'equal' | 'full' | 'percentage'
+type RequestConfirm = (options: ConfirmDialogOptions) => Promise<boolean>
 
 export function toSplitMode(value: string): SplitMode {
   if (value === 'equal' || value === 'full' || value === 'percentage') {
@@ -546,7 +549,7 @@ export function ReceiptDetailModal({
 // useReceiptDetailModal
 // ---------------------------------------------------------------------------
 
-export function useReceiptDetailModal(loadHistory: () => Promise<void>) {
+export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestConfirm: RequestConfirm) {
   const { addToast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [receiptId, setReceiptId] = useState('')
@@ -694,7 +697,11 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>) {
 
   async function onDelete() {
     if (!receiptId) return
-    const confirmed = window.confirm('Delete this receipt? This cannot be undone.')
+    const confirmed = await requestConfirm({
+      title: 'Delete receipt?',
+      message: 'Delete this receipt? This cannot be undone.',
+      confirmLabel: 'Delete receipt',
+    })
     if (!confirmed) return
     setIsDeleting(true)
     try {
@@ -1027,7 +1034,7 @@ export function EntryDetailModal({
   )
 }
 
-export function useExpenseEntryModal(loadHistory: () => Promise<void>) {
+export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestConfirm: RequestConfirm) {
   const { addToast } = useToast()
   const [selectedEntryRef, setSelectedEntryRef] = useState<{ groupId: string; entryId: string } | null>(null)
   const [selectedEntry, setSelectedEntry] = useState<ManualEntryDetail | null>(null)
@@ -1178,7 +1185,11 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>) {
     if (!selectedEntryRef) {
       return
     }
-    const confirmed = window.confirm('Delete this expense? This cannot be undone.')
+    const confirmed = await requestConfirm({
+      title: 'Delete expense?',
+      message: 'Delete this expense? This cannot be undone.',
+      confirmLabel: 'Delete expense',
+    })
     if (!confirmed) {
       return
     }
@@ -1233,6 +1244,7 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
   const [items, setItems] = useState<GroupHistoryItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
+  const deleteConfirm = useConfirmDialog()
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true)
@@ -1249,8 +1261,8 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
     void loadHistory()
   }, [loadHistory])
 
-  const entryModal = useExpenseEntryModal(loadHistory)
-  const receiptModal = useReceiptDetailModal(loadHistory)
+  const entryModal = useExpenseEntryModal(loadHistory, deleteConfirm.confirm)
+  const receiptModal = useReceiptDetailModal(loadHistory, deleteConfirm.confirm)
 
   return (
     <div className="space-y-4">
@@ -1371,6 +1383,10 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+      />
+      <ConfirmDialog
+        {...deleteConfirm.dialogProps}
+        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting}
       />
     </div>
   )

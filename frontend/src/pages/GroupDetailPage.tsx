@@ -14,10 +14,12 @@ import {
 import { GroupScopedHistory } from '@/components/history/GroupScopedHistory'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
+import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type { Group, GroupBalanceResponse, GroupInvitation, GroupMember, Receipt } from '@/types/models'
 import { formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
@@ -27,6 +29,7 @@ export function GroupDetailPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { addToast } = useToast()
+  const deleteGroupConfirm = useConfirmDialog()
 
   const [group, setGroup] = useState<Group | null>(null)
   const [balance, setBalance] = useState<GroupBalanceResponse | null>(null)
@@ -133,14 +136,18 @@ export function GroupDetailPage() {
 
   async function onDeleteGroup() {
     if (!group) return
-    const confirmed = window.confirm(`Delete "${group.name}"? This cannot be undone.`)
+    const confirmed = await deleteGroupConfirm.confirm({
+      title: 'Delete group?',
+      message: `Delete "${group.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete group',
+    })
     if (!confirmed) return
 
     setIsDeletingGroup(true)
     try {
       await deleteGroup(id)
       addToast('success', 'Group deleted')
-      navigate('/groups')
+      navigate('/')
     } catch (error) {
       addToast('error', getErrorMessage(error, 'Unable to delete group'))
     } finally {
@@ -403,6 +410,7 @@ export function GroupDetailPage() {
           )}
         </Card>
       )}
+      <ConfirmDialog {...deleteGroupConfirm.dialogProps} isLoading={isDeletingGroup} />
     </div>
   )
 }

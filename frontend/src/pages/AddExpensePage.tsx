@@ -46,7 +46,7 @@ export function AddExpensePage() {
           </div>
           <p className="text-sm font-medium text-ink">No groups yet</p>
           <p className="mt-1 text-xs text-ink-tertiary">
-            <Link to="/groups" className="text-pastel-purple-deep underline">Create a group</Link> first to start adding expenses.
+            <Link to="/" className="text-pastel-purple-deep underline">Create a group</Link> first to start adding expenses.
           </p>
         </Card>
       ) : (

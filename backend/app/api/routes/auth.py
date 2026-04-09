@@ -17,6 +17,15 @@ from app.schemas.common import UserOut
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
+EMAIL_NOT_ALLOWED_DETAIL = "This email is not allowed to use this application."
+
+
+def _require_allowed_email(normalized_email: str) -> None:
+    allowed = settings.allowed_email_set
+    if not allowed or normalized_email in allowed:
+        return
+    raise HTTPException(status_code=403, detail=EMAIL_NOT_ALLOWED_DETAIL)
+
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     response.set_cookie(
@@ -33,6 +42,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 @router.post("/register", response_model=AuthResponse, status_code=201)
 async def register(payload: RegisterRequest, response: Response, db: AsyncSession = Depends(get_db)):
     normalized_email = payload.email.strip().lower()
+    _require_allowed_email(normalized_email)
     existing_email = await db.scalar(select(User).where(User.email == normalized_email))
     if existing_email:
         raise HTTPException(status_code=409, detail="Email already taken")
@@ -67,6 +77,7 @@ async def register(payload: RegisterRequest, response: Response, db: AsyncSessio
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     normalized_email = payload.email.strip().lower()
+    _require_allowed_email(normalized_email)
     user = await db.scalar(select(User).where(User.email == normalized_email))
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")

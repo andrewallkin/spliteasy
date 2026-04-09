@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
-import { getErrorMessage } from '@/utils/errors'
+import { getEmailAllowlistRejectionMessage, getErrorMessage } from '@/utils/errors'
 
 const schema = z
   .object({
@@ -36,7 +36,7 @@ export function RegisterPage() {
   } = useForm<FormValues>({ resolver: zodResolver(schema) })
 
   if (isAuthenticated) {
-    return <Navigate to="/groups" replace />
+    return <Navigate to="/" replace />
   }
 
   const onSubmit = handleSubmit(async (values) => {
@@ -45,7 +45,12 @@ export function RegisterPage() {
       await registerAccount(values.email, values.displayName, values.password)
       addToast('success', 'Account created')
     } catch (error) {
-      addToast('error', getErrorMessage(error, 'Unable to register'))
+      const allowlistMsg = getEmailAllowlistRejectionMessage(error)
+      if (allowlistMsg) {
+        addToast('error', allowlistMsg)
+      } else {
+        addToast('error', getErrorMessage(error, 'Unable to register'))
+      }
     } finally {
       setIsSubmitting(false)
     }

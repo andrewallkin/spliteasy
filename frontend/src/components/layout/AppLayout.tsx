@@ -1,10 +1,8 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
-import { ToastViewport } from '@/components/ui/ToastViewport'
-
 const tabs = [
   {
-    to: '/groups',
+    to: '/',
     label: 'Home',
     icon: (active: boolean) => (
       <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
@@ -42,8 +40,9 @@ const tabs = [
 ]
 
 function tabActive(pathname: string, tabTo: string): boolean {
-  if (tabTo === '/groups') {
+  if (tabTo === '/') {
     return (
+      pathname === '/' ||
       pathname === '/groups' ||
       /^\/groups\/[^/]+$/.test(pathname) ||
       /^\/groups\/[^/]+\/settle$/.test(pathname)
@@ -58,34 +57,32 @@ function tabActive(pathname: string, tabTo: string): boolean {
   if (tabTo === '/profile') {
     return pathname.startsWith('/profile')
   }
-  return pathname.startsWith(tabTo)
+  return pathname === tabTo || pathname.startsWith(`${tabTo}/`)
 }
 
 export function AppLayout() {
   const location = useLocation()
   return (
-    <div className="mx-auto min-h-screen w-full max-w-[768px] pb-[calc(5rem+env(safe-area-inset-bottom))]">
+    <div className="mx-auto min-h-screen w-full max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px] pb-[calc(5rem+env(safe-area-inset-bottom))]">
       <a href="#main-content" className="sr-only focus:not-sr-only">
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 border-b border-white/40 glass px-5 py-4">
+      <header className="sticky top-0 z-40 border-b border-white/40 glass px-5 py-4 md:px-6 lg:px-8">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-pastel-purple to-pastel-purple-deep">
-            <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-            </svg>
+          <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-xl ring-1 ring-ink-faint/15">
+            <img src="/spliteasy-icon.jpeg" alt="" className="h-full w-full object-cover" width={32} height={32} />
           </div>
           <h1 className="text-lg font-bold text-ink">SplitEasy</h1>
         </div>
       </header>
-      <main id="main-content" className="px-4 py-5" aria-live="polite">
+      <main id="main-content" className="px-4 py-5 md:px-6 lg:px-8" aria-live="polite">
         <Outlet />
       </main>
       <nav
         aria-label="Main navigation"
         className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/40 glass pb-[env(safe-area-inset-bottom)]"
       >
-        <ul className="mx-auto grid max-w-[768px] grid-cols-4">
+        <ul className="mx-auto grid max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px] grid-cols-4">
           {tabs.map((tab) => {
             const active = tabActive(location.pathname, tab.to)
             return (
@@ -108,7 +105,6 @@ export function AppLayout() {
           })}
         </ul>
       </nav>
-      <ToastViewport />
     </div>
   )
 }

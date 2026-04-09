@@ -12,8 +12,8 @@ export function NotFoundPage() {
         </div>
         <h1 className="text-xl font-bold text-ink">Page not found</h1>
         <p className="text-sm text-ink-secondary">The page you are looking for does not exist.</p>
-        <Link to="/groups">
-          <Button className="w-full">Go to groups</Button>
+        <Link to="/">
+          <Button className="w-full">Go home</Button>
         </Link>
       </Card>
     </div>
