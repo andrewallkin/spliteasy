@@ -31,6 +31,7 @@ class UserOut(BaseModel):
 class GroupMemberOut(BaseModel):
     user_id: uuid.UUID
     display_name: str
+    profile_picture: str | None = None
     role: str
     joined_at: datetime
 

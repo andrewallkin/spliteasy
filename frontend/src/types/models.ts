@@ -22,6 +22,7 @@ export type Group = {
 export type GroupMember = {
   user_id: string
   display_name: string
+  profile_picture: string | null
   role: string
   joined_at: string
 }
