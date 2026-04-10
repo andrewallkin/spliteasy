@@ -190,7 +190,12 @@ async def global_history(
     items: list[dict] = []
     if type in (None, "receipt"):
         receipts = (
-            await db.scalars(select(Receipt).where(Receipt.group_id.in_(target_group_ids)))
+            await db.scalars(
+                select(Receipt).where(
+                    Receipt.group_id.in_(target_group_ids),
+                    Receipt.status == "assigned",
+                )
+            )
         ).all()
         items.extend(
             [{
@@ -517,7 +522,12 @@ async def history(
 
     items: list[dict] = []
     if type in (None, "receipt"):
-        receipts = (await db.scalars(select(Receipt).where(Receipt.group_id == group_id))).all()
+        receipts = (await db.scalars(
+            select(Receipt).where(
+                Receipt.group_id == group_id,
+                Receipt.status == "assigned",
+            )
+        )).all()
         items.extend(
             [{
                 "type": "receipt",

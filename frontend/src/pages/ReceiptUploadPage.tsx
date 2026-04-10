@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
-import { getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
+import { deleteReceipt, getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
 import { api } from '@/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useToast } from '@/context/ToastContext'
+import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type { GroupMember, OCRLineItem, Receipt } from '@/types/models'
 import { DEFAULT_CURRENCY, formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
@@ -70,6 +72,10 @@ export function ReceiptUploadPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const [searchParams] = useSearchParams()
+  const resumeReceiptId = searchParams.get('receiptId')
+  const discardConfirm = useConfirmDialog()
+  const intentionalNavRef = useRef(false)
   const [step, setStep] = useState<Step>('capture')
   const [files, setFiles] = useState<File[]>([])
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -94,6 +100,54 @@ export function ReceiptUploadPage() {
       })
       .catch(() => {/* best-effort */})
   }, [id])
+
+  // Resume an existing pending_review draft when navigated here with ?receiptId=
+  useEffect(() => {
+    if (!resumeReceiptId) return
+    void (async () => {
+      try {
+        setStep('processing')
+        const [existingReceipt, ocrItems] = await Promise.all([
+          api.get<Receipt>(`/receipts/${resumeReceiptId}`),
+          api.get<OCRLineItem[]>(`/receipts/${resumeReceiptId}/items`),
+        ])
+        setReceipt(existingReceipt.data)
+        setMerchantName(existingReceipt.data.merchant_name ?? '')
+        setTotalAmount(String(existingReceipt.data.total_amount ?? ''))
+        setItems(ocrItems.data.map((item, index) => fromOCRItem(item, index)))
+        setNextKey(ocrItems.data.length)
+        setStep('confirm')
+      } catch {
+        addToast('error', 'Unable to load receipt draft')
+        setStep('capture')
+      }
+    })()
+  }, [resumeReceiptId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Block navigation away from confirm step — draft exists on the backend at this point
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !intentionalNavRef.current &&
+      step === 'confirm' &&
+      currentLocation.pathname !== nextLocation.pathname,
+  )
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void (async () => {
+      const confirmed = await discardConfirm.confirm({
+        title: 'Discard receipt draft?',
+        message: 'If you leave now, this draft will be deleted.',
+        confirmLabel: 'Discard',
+      })
+      if (confirmed) {
+        if (receipt) await deleteReceipt(receipt.id).catch(() => {/* best-effort */})
+        blocker.proceed()
+      } else {
+        blocker.reset()
+      }
+    })()
+  }, [blocker.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const me = members[0]
   const partner = members[1]
@@ -154,9 +208,17 @@ export function ReceiptUploadPage() {
     try {
       setStep('processing')
       const uploaded = await uploadReceipt(id, files)
+
+      // OCR failed — receipt is kept in DB for observability (status: ocr_failed); just show error
+      if (uploaded.status === 'ocr_failed') {
+        addToast('error', 'Could not read receipt. Please try again or add items manually.')
+        setStep('capture')
+        return
+      }
+
       setReceipt(uploaded)
       setMerchantName(uploaded.merchant_name ?? '')
-      setTotalAmount(uploaded.total_amount ?? '')
+      setTotalAmount(String(uploaded.total_amount ?? ''))
 
       // Fetch the created line items (with IDs and enriched fields)
       const ocrItems = (
@@ -169,6 +231,23 @@ export function ReceiptUploadPage() {
       addToast('error', getErrorMessage(error, 'Unable to process receipt'))
       setStep('capture')
     }
+  }
+
+  async function onCancel() {
+    if (!receipt) {
+      intentionalNavRef.current = true
+      navigate(`/groups/${id}`)
+      return
+    }
+    const confirmed = await discardConfirm.confirm({
+      title: 'Discard receipt draft?',
+      message: 'This draft will be permanently deleted.',
+      confirmLabel: 'Discard',
+    })
+    if (!confirmed) return
+    await deleteReceipt(receipt.id).catch(() => {/* best-effort */})
+    intentionalNavRef.current = true
+    navigate(`/groups/${id}`)
   }
 
   async function onConfirm() {
@@ -485,6 +564,14 @@ export function ReceiptUploadPage() {
           >
             {isSaving ? 'Saving...' : 'Confirm Receipt'}
           </Button>
+          <Button
+            variant="ghost"
+            onClick={onCancel}
+            disabled={isSaving}
+            className="w-full"
+          >
+            Cancel
+          </Button>
         </div>
       )}
 
@@ -500,6 +587,8 @@ export function ReceiptUploadPage() {
           <Button onClick={() => navigate(`/groups/${id}`)} className="w-full">Back to group</Button>
         </Card>
       )}
+
+      <ConfirmDialog {...discardConfirm.dialogProps} />
     </div>
   )
 }

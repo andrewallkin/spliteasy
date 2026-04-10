@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
   deleteGroup,
+  deleteReceipt,
   getBalances,
   getGroup,
   getGroupMembers,
@@ -30,6 +31,7 @@ export function GroupDetailPage() {
   const { user } = useAuth()
   const { addToast } = useToast()
   const deleteGroupConfirm = useConfirmDialog()
+  const discardDraftsConfirm = useConfirmDialog()
 
   const [group, setGroup] = useState<Group | null>(null)
   const [balance, setBalance] = useState<GroupBalanceResponse | null>(null)
@@ -155,6 +157,17 @@ export function GroupDetailPage() {
     }
   }
 
+  async function onDiscardDraft(receiptId: string) {
+    const confirmed = await discardDraftsConfirm.confirm({
+      title: 'Discard receipt draft?',
+      message: 'This draft will be permanently deleted.',
+      confirmLabel: 'Discard',
+    })
+    if (!confirmed) return
+    await deleteReceipt(receiptId).catch(() => {/* best-effort */})
+    setPendingReceipts((prev) => prev.filter((r) => r.id !== receiptId))
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -242,14 +255,46 @@ export function GroupDetailPage() {
 
       {/* Pending receipts */}
       {pendingReceipts.length > 0 && (
-        <Card className="border-pastel-peach/40 bg-orange-50/60">
+        <Card className="space-y-2 border-pastel-peach/40 bg-orange-50/60">
           <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-4 w-4 shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
-            <p className="text-sm font-medium text-orange-800">
+            <p className="text-sm font-semibold text-orange-800">
               {pendingReceipts.length} receipt draft{pendingReceipts.length > 1 ? 's' : ''} pending review
             </p>
+          </div>
+          <div className="space-y-1.5">
+            {pendingReceipts.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-orange-100/60 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-orange-900">
+                    {r.merchant_name ?? r.nickname ?? 'Unnamed receipt'}
+                  </p>
+                  <p className="text-xs text-orange-600">
+                    {new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Link
+                    to={`/groups/${id}/upload?receiptId=${r.id}`}
+                    className="rounded-xl bg-orange-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-orange-600"
+                  >
+                    Resume
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => onDiscardDraft(r.id)}
+                    className="rounded-xl p-1 text-orange-500 transition hover:bg-orange-200 hover:text-orange-700"
+                    aria-label="Discard draft"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       )}
@@ -415,6 +460,7 @@ export function GroupDetailPage() {
         </Card>
       )}
       <ConfirmDialog {...deleteGroupConfirm.dialogProps} isLoading={isDeletingGroup} />
+      <ConfirmDialog {...discardDraftsConfirm.dialogProps} />
     </div>
   )
 }
