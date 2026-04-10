@@ -1,14 +1,13 @@
-import os
+import base64
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_group_member
-from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.enums import ShareType
 from app.models.group_member import GroupMember
@@ -22,10 +21,9 @@ from app.schemas.receipts import (
     ReceiptPatchRequest,
     ReceiptUpdateItemsRequest,
 )
-from app.services.ocr import extract_receipt_items, image_bytes_to_jpeg_base64
+from app.services.ocr import extract_receipt_items, image_bytes_to_jpeg_bytes
 
 router = APIRouter(tags=["receipts"])
-settings = get_settings()
 
 
 def _round(value: Decimal) -> Decimal:
@@ -51,30 +49,28 @@ async def upload_receipt(
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     images_base64: list[str] = []
-    first_body: bytes | None = None
+    first_jpeg_body: bytes | None = None
 
     for upload in files:
         body = await upload.read()
         if len(body) > 10 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="File too large (max 10 MB per file)")
         content_type = upload.content_type or ""
-        images_base64.append(image_bytes_to_jpeg_base64(body, content_type))
-        if first_body is None:
-            first_body = body
+        jpeg_body = image_bytes_to_jpeg_bytes(body, content_type)
+        images_base64.append(base64.b64encode(jpeg_body).decode())
+        if first_jpeg_body is None:
+            first_jpeg_body = jpeg_body
+
+    if first_jpeg_body is None:
+        raise HTTPException(status_code=400, detail="At least one file is required")
 
     receipt_id = uuid.uuid4()
-    group_dir = os.path.join(settings.uploads_dir, "receipts", str(group_id))
-    os.makedirs(group_dir, exist_ok=True)
-    save_path = os.path.join(group_dir, f"{receipt_id}.jpg")
-    # Save first image as the canonical receipt image
-    with open(save_path, "wb") as image_file:
-        image_file.write(first_body)
-
     receipt = Receipt(
         id=receipt_id,
         group_id=group_id,
         uploaded_by=user.id,
-        image_path=save_path,
+        image_data=first_jpeg_body,
+        image_mime_type="image/jpeg",
         status="pending_ocr",
     )
     db.add(receipt)
@@ -328,7 +324,13 @@ async def receipt_image(
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
-    return FileResponse(receipt.image_path, headers={"Cache-Control": "private, max-age=86400"})
+    if not receipt.image_data:
+        raise HTTPException(status_code=404, detail="Receipt image not found")
+    return Response(
+        content=receipt.image_data,
+        media_type=receipt.image_mime_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("/groups/{group_id}/receipts", response_model=list[ReceiptOut])

@@ -52,7 +52,6 @@ export type Receipt = {
   id: string
   group_id: string
   uploaded_by: string
-  image_path: string
   nickname?: string | null
   merchant_name?: string | null
   total_amount?: string | null

@@ -8,6 +8,7 @@ import {
   HistoryCard,
   historyFilterLabels,
   historyFilters,
+  ReceiptImageModal,
   ReceiptDetailModal,
   useExpenseEntryModal,
   useReceiptDetailModal,
@@ -36,6 +37,7 @@ function GlobalHistoryPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
+  const [imageModalReceiptId, setImageModalReceiptId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -144,6 +146,7 @@ function GlobalHistoryPage() {
               showGroupName
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
+              onReceiptImageClick={setImageModalReceiptId}
             />
           ))}
         </div>
@@ -209,6 +212,11 @@ function GlobalHistoryPage() {
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+      />
+      <ReceiptImageModal
+        isOpen={Boolean(imageModalReceiptId)}
+        receiptId={imageModalReceiptId}
+        onClose={() => setImageModalReceiptId('')}
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}

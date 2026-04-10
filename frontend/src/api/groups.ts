@@ -148,6 +148,13 @@ export async function getReceiptItems(receiptId: string) {
   return response.data
 }
 
+export async function getReceiptImageBlob(receiptId: string) {
+  const response = await api.get<Blob>(`/receipts/${receiptId}/image`, {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
 export async function updateReceiptItems(receiptId: string, payload: unknown) {
   const response = await api.put<Receipt>(`/receipts/${receiptId}/items`, payload)
   return response.data

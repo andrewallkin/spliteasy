@@ -6,6 +6,7 @@ import {
   getEntry,
   getGroupMembers,
   getHistory,
+  getReceiptImageBlob,
   getReceiptItems,
   patchReceipt,
   updateEntry,
@@ -91,11 +92,13 @@ export function HistoryCard({
   showGroupName,
   onEntryClick,
   onReceiptClick,
+  onReceiptImageClick,
 }: {
   item: GroupHistoryItem
   showGroupName: boolean
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
+  onReceiptImageClick: (receiptId: string) => void
 }) {
   const badge = typeBadge[item.type] ?? typeBadge.entry
   const data = item.data as Record<string, string | null | undefined>
@@ -103,6 +106,7 @@ export function HistoryCard({
   const isEntry = item.type === 'entry'
   const isReceipt = item.type === 'receipt'
   const isClickable = isEntry || isReceipt
+  const { imageUrl: receiptImageUrl, isLoading: isReceiptImageLoading } = useReceiptImageUrl(item.id, isReceipt)
 
   return (
     <Card
@@ -171,29 +175,53 @@ export function HistoryCard({
       )}
 
       {item.type === 'receipt' && (
-        <div>
-          <p className="font-semibold text-ink">
-            {data.nickname || data.merchant_name || 'Receipt'}
-          </p>
-          {data.nickname && data.merchant_name && (
-            <p className="text-xs text-ink-tertiary">{data.merchant_name}</p>
-          )}
-          <div className="mt-1.5 flex items-baseline justify-between">
-            {data.total_amount && (
-              <span className="text-xl font-bold text-ink">
-                {formatCurrency(
-                  Number(data.total_amount),
-                  typeof data.currency === 'string' ? data.currency : undefined,
-                )}
-              </span>
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onReceiptImageClick(item.id)
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="group mt-0.5 h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-surface-tertiary bg-surface-secondary"
+            aria-label="Open receipt image"
+          >
+            {receiptImageUrl ? (
+              <img
+                src={receiptImageUrl}
+                alt="Receipt thumbnail"
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] font-semibold text-ink-tertiary">
+                {isReceiptImageLoading ? 'Loading...' : 'No image'}
+              </div>
             )}
-            <span className="text-xs text-ink-tertiary">
-              {data.uploaded_by ? `created by ${data.uploaded_by}` : data.status}
-            </span>
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-ink">
+              {data.nickname || data.merchant_name || 'Receipt'}
+            </p>
+            {data.nickname && data.merchant_name && (
+              <p className="text-xs text-ink-tertiary">{data.merchant_name}</p>
+            )}
+            <div className="mt-1.5 flex items-baseline justify-between">
+              {data.total_amount && (
+                <span className="text-xl font-bold text-ink">
+                  {formatCurrency(
+                    Number(data.total_amount),
+                    typeof data.currency === 'string' ? data.currency : undefined,
+                  )}
+                </span>
+              )}
+              <span className="text-xs text-ink-tertiary">
+                {data.uploaded_by ? `created by ${data.uploaded_by}` : data.status}
+              </span>
+            </div>
+            {isReceipt && (
+              <p className="mt-1 text-[10px] text-ink-faint">Tap to view details</p>
+            )}
           </div>
-          {isReceipt && (
-            <p className="mt-1 text-[10px] text-ink-faint">Tap to view details</p>
-          )}
         </div>
       )}
 
@@ -213,6 +241,103 @@ export function HistoryCard({
         </div>
       )}
     </Card>
+  )
+}
+
+function useReceiptImageUrl(receiptId: string, enabled = true) {
+  const [result, setResult] = useState<{ receiptId: string; imageUrl: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!enabled || !receiptId) return
+
+    let cancelled = false
+
+    void getReceiptImageBlob(receiptId)
+      .then((blob) => {
+        if (cancelled) return
+        const nextUrl = URL.createObjectURL(blob)
+        setResult((previous) => {
+          if (previous?.imageUrl) {
+            URL.revokeObjectURL(previous.imageUrl)
+          }
+          return { receiptId, imageUrl: nextUrl }
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setResult((previous) => {
+          if (previous?.imageUrl) {
+            URL.revokeObjectURL(previous.imageUrl)
+          }
+          return { receiptId, imageUrl: null }
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [receiptId, enabled])
+
+  useEffect(() => {
+    return () => {
+      if (result?.imageUrl) {
+        URL.revokeObjectURL(result.imageUrl)
+      }
+    }
+  }, [result])
+
+  const isLoading = enabled && Boolean(receiptId) && result?.receiptId !== receiptId
+  const imageUrl = result?.receiptId === receiptId ? result.imageUrl : null
+
+  return { imageUrl, isLoading }
+}
+
+export function ReceiptImageModal({
+  isOpen,
+  receiptId,
+  onClose,
+}: {
+  isOpen: boolean
+  receiptId: string
+  onClose: () => void
+}) {
+  const { imageUrl, isLoading } = useReceiptImageUrl(receiptId, isOpen && Boolean(receiptId))
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="relative max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-black shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 rounded-full bg-black/55 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-black/75"
+        >
+          Close
+        </button>
+        {imageUrl ? (
+          <img src={imageUrl} alt="Receipt" className="max-h-[92vh] w-full object-contain" />
+        ) : (
+          <div className="flex h-[60vh] items-center justify-center text-sm text-white">
+            {isLoading ? 'Loading image...' : 'Image unavailable'}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1242,6 +1367,7 @@ type GroupScopedHistoryProps = {
 export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps) {
   const [filter, setFilter] = useState<(typeof historyFilters)[number]>('all')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
+  const [imageModalReceiptId, setImageModalReceiptId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -1318,6 +1444,7 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
               showGroupName={false}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
+              onReceiptImageClick={setImageModalReceiptId}
             />
           ))}
         </div>
@@ -1383,6 +1510,11 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+      />
+      <ReceiptImageModal
+        isOpen={Boolean(imageModalReceiptId)}
+        receiptId={imageModalReceiptId}
+        onClose={() => setImageModalReceiptId('')}
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}
