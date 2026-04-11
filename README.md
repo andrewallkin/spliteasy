@@ -17,9 +17,7 @@ Full-stack bill-splitting app for exactly two members per group.
    - `docker compose -f docker-compose.dev.yml up --build`
 4. Run migrations:
    - `docker compose -f docker-compose.dev.yml exec backend uv run alembic upgrade head`
-5. (Optional) seed:
-   - `docker compose -f docker-compose.dev.yml exec backend python -m scripts.seed`
-6. Open apps:
+5. Open apps:
    - Frontend: `http://localhost:3000`
    - Backend docs: `http://localhost:8000/docs`
 
