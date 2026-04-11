@@ -354,7 +354,6 @@ export function ReceiptUploadPage() {
             <input
               type="file"
               accept="image/*,.heic,.heif"
-              capture="environment"
               multiple
               className="hidden"
               onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
