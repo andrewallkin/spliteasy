@@ -23,6 +23,7 @@ async function refreshAccessToken(): Promise<string | null> {
       })
       .catch(() => {
         setAccessToken(null)
+        window.dispatchEvent(new CustomEvent('auth:session-expired'))
         return null
       })
       .finally(() => {
