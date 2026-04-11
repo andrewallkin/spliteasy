@@ -6,6 +6,7 @@ import {
   getEntry,
   getGroupMembers,
   getHistory,
+  getReceiptImageBlob,
   getReceiptItems,
   patchReceipt,
   updateEntry,
@@ -22,6 +23,7 @@ import { type ConfirmDialogOptions, useConfirmDialog } from '@/hooks/useConfirmD
 import type {
   GroupHistoryEntryData,
   GroupHistoryItem,
+  GroupHistoryReceiptData,
   GroupMember,
   ManualEntryDetail,
   OCRLineItem,
@@ -91,18 +93,22 @@ export function HistoryCard({
   showGroupName,
   onEntryClick,
   onReceiptClick,
+  onReceiptImageClick,
 }: {
   item: GroupHistoryItem
   showGroupName: boolean
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
+  onReceiptImageClick: (receiptId: string) => void
 }) {
   const badge = typeBadge[item.type] ?? typeBadge.entry
   const data = item.data as Record<string, string | null | undefined>
   const entryData = item.type === 'entry' ? (item.data as GroupHistoryEntryData) : null
+  const receiptData = item.type === 'receipt' ? (item.data as GroupHistoryReceiptData) : null
   const isEntry = item.type === 'entry'
   const isReceipt = item.type === 'receipt'
   const isClickable = isEntry || isReceipt
+  const { imageUrl: receiptImageUrl, isLoading: isReceiptImageLoading } = useReceiptImageUrl(item.id, isReceipt)
 
   return (
     <Card
@@ -170,30 +176,84 @@ export function HistoryCard({
         </div>
       )}
 
-      {item.type === 'receipt' && (
-        <div>
-          <p className="font-semibold text-ink">
-            {data.nickname || data.merchant_name || 'Receipt'}
-          </p>
-          {data.nickname && data.merchant_name && (
-            <p className="text-xs text-ink-tertiary">{data.merchant_name}</p>
-          )}
-          <div className="mt-1.5 flex items-baseline justify-between">
-            {data.total_amount && (
-              <span className="text-xl font-bold text-ink">
-                {formatCurrency(
-                  Number(data.total_amount),
-                  typeof data.currency === 'string' ? data.currency : undefined,
-                )}
-              </span>
+      {item.type === 'receipt' && receiptData && (
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onReceiptImageClick(item.id)
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="group mt-0.5 h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-surface-tertiary bg-surface-secondary"
+            aria-label="Open receipt image"
+          >
+            {receiptImageUrl ? (
+              <img
+                src={receiptImageUrl}
+                alt="Receipt thumbnail"
+                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] font-semibold text-ink-tertiary">
+                {isReceiptImageLoading ? 'Loading...' : 'No image'}
+              </div>
             )}
-            <span className="text-xs text-ink-tertiary">
-              {data.uploaded_by ? `created by ${data.uploaded_by}` : data.status}
-            </span>
+          </button>
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="font-semibold text-ink">
+              {receiptData.nickname || receiptData.merchant_name || 'Receipt'}
+            </p>
+            {receiptData.nickname && receiptData.merchant_name && (
+              <p className="text-xs text-ink-tertiary">{receiptData.merchant_name}</p>
+            )}
+            {receiptData.total_amount && (
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Total</span>
+                <span className="text-xl font-bold text-ink">
+                  {formatCurrency(
+                    Number(receiptData.total_amount),
+                    typeof receiptData.currency === 'string' ? receiptData.currency : undefined,
+                  )}
+                </span>
+              </div>
+            )}
+            {receiptData.paid_by && (
+              <p className="text-sm text-ink-secondary">
+                <span className="font-semibold text-ink">Paid by </span>
+                {receiptData.paid_by}
+              </p>
+            )}
+            {receiptData.splits && receiptData.splits.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Split</p>
+                <ul className="space-y-0.5">
+                  {receiptData.splits.map((line) => (
+                    <li
+                      key={`${line.display_name}-${line.amount}`}
+                      className="flex justify-between gap-3 text-sm text-ink-secondary"
+                    >
+                      <span>{line.display_name}</span>
+                      <span className="shrink-0 font-semibold tabular-nums text-ink">
+                        {formatCurrency(
+                          Number(line.amount),
+                          typeof receiptData.currency === 'string' ? receiptData.currency : undefined,
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {receiptData.uploaded_by &&
+              receiptData.paid_by &&
+              receiptData.uploaded_by !== receiptData.paid_by && (
+              <p className="text-xs text-ink-tertiary">Uploaded by {receiptData.uploaded_by}</p>
+            )}
+            {isReceipt && (
+              <p className="text-[10px] text-ink-faint">Tap to view details</p>
+            )}
           </div>
-          {isReceipt && (
-            <p className="mt-1 text-[10px] text-ink-faint">Tap to view details</p>
-          )}
         </div>
       )}
 
@@ -213,6 +273,103 @@ export function HistoryCard({
         </div>
       )}
     </Card>
+  )
+}
+
+function useReceiptImageUrl(receiptId: string, enabled = true) {
+  const [result, setResult] = useState<{ receiptId: string; imageUrl: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!enabled || !receiptId) return
+
+    let cancelled = false
+
+    void getReceiptImageBlob(receiptId)
+      .then((blob) => {
+        if (cancelled) return
+        const nextUrl = URL.createObjectURL(blob)
+        setResult((previous) => {
+          if (previous?.imageUrl) {
+            URL.revokeObjectURL(previous.imageUrl)
+          }
+          return { receiptId, imageUrl: nextUrl }
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setResult((previous) => {
+          if (previous?.imageUrl) {
+            URL.revokeObjectURL(previous.imageUrl)
+          }
+          return { receiptId, imageUrl: null }
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [receiptId, enabled])
+
+  useEffect(() => {
+    return () => {
+      if (result?.imageUrl) {
+        URL.revokeObjectURL(result.imageUrl)
+      }
+    }
+  }, [result])
+
+  const isLoading = enabled && Boolean(receiptId) && result?.receiptId !== receiptId
+  const imageUrl = result?.receiptId === receiptId ? result.imageUrl : null
+
+  return { imageUrl, isLoading }
+}
+
+export function ReceiptImageModal({
+  isOpen,
+  receiptId,
+  onClose,
+}: {
+  isOpen: boolean
+  receiptId: string
+  onClose: () => void
+}) {
+  const { imageUrl, isLoading } = useReceiptImageUrl(receiptId, isOpen && Boolean(receiptId))
+
+  useEffect(() => {
+    if (!isOpen) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, onClose])
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="relative max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-black shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 rounded-full bg-black/55 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-black/75"
+        >
+          Close
+        </button>
+        {imageUrl ? (
+          <img src={imageUrl} alt="Receipt" className="max-h-[92vh] w-full object-contain" />
+        ) : (
+          <div className="flex h-[60vh] items-center justify-center text-sm text-white">
+            {isLoading ? 'Loading image...' : 'Image unavailable'}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -328,21 +485,35 @@ export function ReceiptDetailModal({
 
   const splitSummary = useMemo(() => {
     if (!me || !partner) return null
-    let meOwes = 0
-    let partnerOwes = 0
+    let meShare = 0
+    let partnerShare = 0
     for (const item of items) {
       const total = parseFloat(item.final_line_total) || 0
       if (item.assignee === me.user_id) {
-        partnerOwes += total
+        meShare += total
       } else if (item.assignee === partner.user_id) {
-        meOwes += total
+        partnerShare += total
       } else {
-        meOwes += total / 2
-        partnerOwes += total / 2
+        meShare += total / 2
+        partnerShare += total / 2
       }
     }
-    return { me: meOwes, partner: partnerOwes }
-  }, [items, me, partner])
+
+    let meOwes = meShare
+    let partnerOwes = partnerShare
+    if (paidBy === me.user_id) {
+      meOwes = 0
+    } else if (paidBy === partner.user_id) {
+      partnerOwes = 0
+    }
+
+    return {
+      meShare,
+      partnerShare,
+      meOwes,
+      partnerOwes,
+    }
+  }, [items, me, paidBy, partner])
 
   if (!isOpen) return null
 
@@ -401,7 +572,7 @@ export function ReceiptDetailModal({
                   value={paidBy}
                   onChange={(e) => onPaidByChange(e.target.value)}
                   disabled={isSaving || isDeleting}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((m) => (
                     <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
@@ -509,13 +680,23 @@ export function ReceiptDetailModal({
             {splitSummary && me && partner && (
               <div className="rounded-2xl bg-surface-secondary p-3 text-sm text-ink-secondary">
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</p>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+                <div className="flex justify-between">
+                  <span>{partner.display_name} share</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerShare, currency || DEFAULT_CURRENCY)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{me.display_name} share</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meShare, currency || DEFAULT_CURRENCY)}</span>
+                </div>
+                <p className="mb-1 pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
                 <div className="flex justify-between">
                   <span>{partner.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partner, currency || DEFAULT_CURRENCY)}</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerOwes, currency || DEFAULT_CURRENCY)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>{me.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.me, currency || DEFAULT_CURRENCY)}</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meOwes, currency || DEFAULT_CURRENCY)}</span>
                 </div>
               </div>
             )}
@@ -896,7 +1077,7 @@ export function EntryDetailModal({
                   value={paidBy}
                   onChange={(event) => onPaidByChange(event.target.value)}
                   disabled={!canEdit || isSaving || isDeleting}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((member) => (
                     <option key={member.user_id} value={member.user_id}>
@@ -942,7 +1123,7 @@ export function EntryDetailModal({
                     value={fullSplitUserId}
                     onChange={(event) => onFullSplitUserIdChange(event.target.value)}
                     disabled={!canEdit || isSaving || isDeleting}
-                    className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                    className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                   >
                     {members
                       .filter((member) => member.user_id !== paidBy)
@@ -1242,6 +1423,7 @@ type GroupScopedHistoryProps = {
 export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps) {
   const [filter, setFilter] = useState<(typeof historyFilters)[number]>('all')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
+  const [imageModalReceiptId, setImageModalReceiptId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -1318,6 +1500,7 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
               showGroupName={false}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
+              onReceiptImageClick={setImageModalReceiptId}
             />
           ))}
         </div>
@@ -1383,6 +1566,11 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+      />
+      <ReceiptImageModal
+        isOpen={Boolean(imageModalReceiptId)}
+        receiptId={imageModalReceiptId}
+        onClose={() => setImageModalReceiptId('')}
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}

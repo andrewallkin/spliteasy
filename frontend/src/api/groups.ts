@@ -64,6 +64,11 @@ export async function updateGroup(groupId: string, name: string) {
   return response.data
 }
 
+export async function updateGroupProfilePicture(groupId: string, picture: string) {
+  const response = await api.patch<Group>(`/groups/${groupId}/profile-picture`, { profile_picture: picture })
+  return response.data
+}
+
 export async function deleteGroup(groupId: string) {
   await api.delete(`/groups/${groupId}`)
 }
@@ -145,6 +150,13 @@ export async function listReceipts(groupId: string, status?: string) {
 
 export async function getReceiptItems(receiptId: string) {
   const response = await api.get<OCRLineItem[]>(`/receipts/${receiptId}/items`)
+  return response.data
+}
+
+export async function getReceiptImageBlob(receiptId: string) {
+  const response = await api.get<Blob>(`/receipts/${receiptId}/image`, {
+    responseType: 'blob',
+  })
   return response.data
 }
 

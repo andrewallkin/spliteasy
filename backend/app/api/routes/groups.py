@@ -1,5 +1,8 @@
+import base64
+import binascii
 import secrets
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -12,6 +15,7 @@ from app.db.session import get_db
 from app.models.enums import GroupRole
 from app.models.group import Group, GroupBalance, GroupInvitation
 from app.models.group_member import GroupMember
+from app.models.line_item import ItemAssignment, LineItem
 from app.models.manual_entry import ManualEntry, ManualEntrySplit, Settlement
 from app.models.receipt import Receipt
 from app.models.user import User
@@ -23,11 +27,13 @@ from app.schemas.groups import (
     GroupJoinByCodeRequest,
     GroupJoinRequest,
     GroupOut,
+    GroupProfilePictureRequest,
     GroupUpdateRequest,
 )
 from app.services.balances import compute_group_balances
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_MAX_GROUP_PICTURE_BYTES = 10 * 1024 * 1024
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -60,6 +66,50 @@ def _history_entry_splits_payload(
         ]
         lines.sort(key=lambda line: line["display_name"])
         out[entry_id] = lines
+    return out
+
+
+async def _receipt_share_totals_by_receipt_id(
+    db: AsyncSession, receipt_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, dict[uuid.UUID, Decimal]]:
+    if not receipt_ids:
+        return {}
+    line_items = (
+        await db.scalars(select(LineItem).where(LineItem.receipt_id.in_(receipt_ids)))
+    ).all()
+    line_to_receipt: dict[uuid.UUID, uuid.UUID] = {}
+    for li in line_items:
+        if li.receipt_id is not None:
+            line_to_receipt[li.id] = li.receipt_id
+    line_ids = list(line_to_receipt.keys())
+    if not line_ids:
+        return {}
+    assignments = (
+        await db.scalars(select(ItemAssignment).where(ItemAssignment.line_item_id.in_(line_ids)))
+    ).all()
+    totals: dict[uuid.UUID, dict[uuid.UUID, Decimal]] = defaultdict(
+        lambda: defaultdict(lambda: Decimal("0.00"))
+    )
+    for a in assignments:
+        rid = line_to_receipt.get(a.line_item_id)
+        if rid is None:
+            continue
+        totals[rid][a.user_id] += Decimal(str(a.share_amount))
+    return {rid: dict(users) for rid, users in totals.items()}
+
+
+def _history_receipt_splits_payload(
+    share_totals: dict[uuid.UUID, dict[uuid.UUID, Decimal]],
+    display_name_map: dict[uuid.UUID, str],
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    out: dict[uuid.UUID, list[dict[str, str]]] = {}
+    for rid, per_user in share_totals.items():
+        lines = [
+            {"display_name": display_name_map.get(uid, "unknown"), "amount": str(amt)}
+            for uid, amt in per_user.items()
+        ]
+        lines.sort(key=lambda line: line["display_name"])
+        out[rid] = lines
     return out
 
 
@@ -190,8 +240,15 @@ async def global_history(
     items: list[dict] = []
     if type in (None, "receipt"):
         receipts = (
-            await db.scalars(select(Receipt).where(Receipt.group_id.in_(target_group_ids)))
+            await db.scalars(
+                select(Receipt).where(
+                    Receipt.group_id.in_(target_group_ids),
+                    Receipt.status == "assigned",
+                )
+            )
         ).all()
+        receipt_share_totals = await _receipt_share_totals_by_receipt_id(db, [r.id for r in receipts])
+        receipt_splits_payload = _history_receipt_splits_payload(receipt_share_totals, user_map)
         items.extend(
             [{
                 "type": "receipt",
@@ -207,6 +264,11 @@ async def global_history(
                     "currency": receipt.currency,
                     "uploaded_by": user_map.get(receipt.uploaded_by, "unknown"),
                     "paid_by_user_id": str(receipt.paid_by_user_id) if receipt.paid_by_user_id else None,
+                    "paid_by": user_map.get(
+                        receipt.paid_by_user_id or receipt.uploaded_by,
+                        "unknown",
+                    ),
+                    "splits": receipt_splits_payload.get(receipt.id, []),
                 },
             } for receipt in receipts]
         )
@@ -284,6 +346,37 @@ async def update_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     group.name = _normalize_group_name(payload.name)
+    await db.commit()
+    await db.refresh(group)
+    return GroupOut.model_validate(group)
+
+
+@router.patch("/{group_id}/profile-picture", response_model=GroupOut)
+async def update_group_profile_picture(
+    group_id: uuid.UUID,
+    payload: GroupProfilePictureRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    group = await db.get(Group, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    if payload.profile_picture:
+        encoded_payload = payload.profile_picture
+        if "," in encoded_payload and encoded_payload.startswith("data:"):
+            encoded_payload = encoded_payload.split(",", 1)[1]
+        try:
+            decoded = base64.b64decode(encoded_payload, validate=True)
+        except binascii.Error as exc:
+            raise HTTPException(status_code=400, detail="Profile picture must be a valid base64 image") from exc
+        if len(decoded) > _MAX_GROUP_PICTURE_BYTES:
+            raise HTTPException(status_code=400, detail="Profile picture must be under 10 MB")
+        group.profile_picture = payload.profile_picture
+    else:
+        group.profile_picture = None
+
     await db.commit()
     await db.refresh(group)
     return GroupOut.model_validate(group)
@@ -517,7 +610,14 @@ async def history(
 
     items: list[dict] = []
     if type in (None, "receipt"):
-        receipts = (await db.scalars(select(Receipt).where(Receipt.group_id == group_id))).all()
+        receipts = (await db.scalars(
+            select(Receipt).where(
+                Receipt.group_id == group_id,
+                Receipt.status == "assigned",
+            )
+        )).all()
+        receipt_share_totals = await _receipt_share_totals_by_receipt_id(db, [r.id for r in receipts])
+        receipt_splits_payload = _history_receipt_splits_payload(receipt_share_totals, user_map)
         items.extend(
             [{
                 "type": "receipt",
@@ -533,6 +633,8 @@ async def history(
                     "currency": r.currency,
                     "uploaded_by": user_map.get(r.uploaded_by, "unknown"),
                     "paid_by_user_id": str(r.paid_by_user_id) if r.paid_by_user_id else None,
+                    "paid_by": user_map.get(r.paid_by_user_id or r.uploaded_by, "unknown"),
+                    "splits": receipt_splits_payload.get(r.id, []),
                 },
             } for r in receipts]
         )

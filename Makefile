@@ -1,27 +1,24 @@
 SHELL := /bin/bash
 
-.PHONY: backend-install frontend-install dev up down migrate seed lint test build
+.PHONY: backend-install frontend-install dev up down migrate lint test build
 
-backend-install:
-	cd backend && uv sync --all-extras
-
-frontend-install:
-	cd frontend && npm install
-
-dev:
+dev-build:
 	docker compose -f docker-compose.dev.yml up --build
 
-up:
+dev-build-d:
 	docker compose -f docker-compose.dev.yml up -d --build
 
-down:
+dev-up:
+	docker compose -f docker-compose.dev.yml up
+
+dev-up-d:
+	docker compose -f docker-compose.dev.yml up -d
+
+dev-down:
 	docker compose -f docker-compose.dev.yml down
 
 migrate:
-	cd backend && uv run alembic upgrade head
-
-seed:
-	cd backend && uv run python -m scripts.seed
+	docker compose -f docker-compose.dev.yml exec backend uv run alembic upgrade head
 
 lint:
 	cd backend && uv run ruff check .

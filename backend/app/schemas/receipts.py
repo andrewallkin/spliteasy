@@ -38,7 +38,6 @@ class ReceiptOut(BaseModel):
     id: uuid.UUID
     group_id: uuid.UUID
     uploaded_by: uuid.UUID
-    image_path: str
     nickname: str | None = None
     merchant_name: str | None = None
     total_amount: Decimal | None = None

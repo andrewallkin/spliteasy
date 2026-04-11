@@ -55,6 +55,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  useEffect(() => {
+    function handleSessionExpired() {
+      invalidateSessionBootstrapCache()
+      setUser(null)
+    }
+    window.addEventListener('auth:session-expired', handleSessionExpired)
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired)
+    }
+  }, [])
+
   const value = useMemo<AuthContextType>(
     () => ({
       user,

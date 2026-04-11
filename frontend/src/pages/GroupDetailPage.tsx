@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
   deleteGroup,
+  deleteReceipt,
   getBalances,
   getGroup,
   getGroupMembers,
@@ -10,6 +11,7 @@ import {
   inviteToGroup,
   listReceipts,
   updateGroup,
+  updateGroupProfilePicture,
 } from '@/api/groups'
 import { GroupScopedHistory } from '@/components/history/GroupScopedHistory'
 import { Button } from '@/components/ui/Button'
@@ -30,6 +32,7 @@ export function GroupDetailPage() {
   const { user } = useAuth()
   const { addToast } = useToast()
   const deleteGroupConfirm = useConfirmDialog()
+  const discardDraftsConfirm = useConfirmDialog()
 
   const [group, setGroup] = useState<Group | null>(null)
   const [balance, setBalance] = useState<GroupBalanceResponse | null>(null)
@@ -44,6 +47,8 @@ export function GroupDetailPage() {
   const [nameDraft, setNameDraft] = useState('')
   const [isSavingName, setIsSavingName] = useState(false)
   const [isDeletingGroup, setIsDeletingGroup] = useState(false)
+  const [uploadingGroupPic, setUploadingGroupPic] = useState(false)
+  const groupPicInputRef = useRef<HTMLInputElement>(null)
 
   const partner = members.find((m) => m.user_id !== user?.id)
   const myMembership = members.find((m) => m.user_id === user?.id)
@@ -155,6 +160,56 @@ export function GroupDetailPage() {
     }
   }
 
+  async function onDiscardDraft(receiptId: string) {
+    const confirmed = await discardDraftsConfirm.confirm({
+      title: 'Discard receipt draft?',
+      message: 'This draft will be permanently deleted.',
+      confirmLabel: 'Discard',
+    })
+    if (!confirmed) return
+    await deleteReceipt(receiptId).catch(() => {/* best-effort */})
+    setPendingReceipts((prev) => prev.filter((r) => r.id !== receiptId))
+  }
+
+  async function onGroupPictureChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      addToast('error', 'Image must be under 10 MB')
+      return
+    }
+    setUploadingGroupPic(true)
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const updated = await updateGroupProfilePicture(id, base64)
+      setGroup(updated)
+      addToast('success', 'Group picture updated')
+    } catch (err) {
+      addToast('error', getErrorMessage(err, 'Failed to upload picture'))
+    } finally {
+      setUploadingGroupPic(false)
+      if (groupPicInputRef.current) groupPicInputRef.current.value = ''
+    }
+  }
+
+  async function onRemoveGroupPicture() {
+    setUploadingGroupPic(true)
+    try {
+      const updated = await updateGroupProfilePicture(id, '')
+      setGroup(updated)
+      addToast('success', 'Group picture removed')
+    } catch (err) {
+      addToast('error', getErrorMessage(err, 'Failed to remove picture'))
+    } finally {
+      setUploadingGroupPic(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -169,6 +224,36 @@ export function GroupDetailPage() {
     <div className="space-y-4">
       {/* Group header & balance */}
       <Card className="space-y-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-pastel-purple/20 to-pastel-lavender/20"
+            onClick={() => groupPicInputRef.current?.click()}
+            disabled={uploadingGroupPic}
+          >
+            {group?.profile_picture ? (
+              <img src={group.profile_picture} alt={group.name} className="h-full w-full object-cover" />
+            ) : (
+              <svg className="h-7 w-7 text-pastel-purple-deep" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+            )}
+            <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+              {uploadingGroupPic ? '...' : 'Edit'}
+            </span>
+          </button>
+          <input ref={groupPicInputRef} type="file" accept="image/*" className="hidden" onChange={onGroupPictureChange} />
+          {group?.profile_picture && (
+            <button
+              type="button"
+              className="text-xs text-ink-tertiary underline hover:text-ink-secondary"
+              onClick={onRemoveGroupPicture}
+              disabled={uploadingGroupPic}
+            >
+              Remove photo
+            </button>
+          )}
+        </div>
         <div className="space-y-3">
           {isOwner && isEditingName ? (
             <div className="space-y-2">
@@ -179,7 +264,7 @@ export function GroupDetailPage() {
                 id="group-name"
                 value={nameDraft}
                 onChange={(event) => setNameDraft(event.target.value)}
-                className="w-full rounded-2xl border border-ink-faint/40 bg-surface px-4 py-2.5 text-sm text-ink focus:border-pastel-purple focus:outline-none"
+                className="w-full rounded-2xl border border-ink-faint/40 bg-surface px-4 py-2.5 text-base text-ink focus:border-pastel-purple focus:outline-none"
                 maxLength={255}
               />
               <div className="flex gap-2">
@@ -242,14 +327,46 @@ export function GroupDetailPage() {
 
       {/* Pending receipts */}
       {pendingReceipts.length > 0 && (
-        <Card className="border-pastel-peach/40 bg-orange-50/60">
+        <Card className="space-y-2 border-pastel-peach/40 bg-orange-50/60">
           <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-4 w-4 shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
-            <p className="text-sm font-medium text-orange-800">
+            <p className="text-sm font-semibold text-orange-800">
               {pendingReceipts.length} receipt draft{pendingReceipts.length > 1 ? 's' : ''} pending review
             </p>
+          </div>
+          <div className="space-y-1.5">
+            {pendingReceipts.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-orange-100/60 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-orange-900">
+                    {r.merchant_name ?? r.nickname ?? 'Unnamed receipt'}
+                  </p>
+                  <p className="text-xs text-orange-600">
+                    {new Date(r.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Link
+                    to={`/groups/${id}/upload?receiptId=${r.id}`}
+                    className="rounded-xl bg-orange-500 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-orange-600"
+                  >
+                    Resume
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => onDiscardDraft(r.id)}
+                    className="rounded-xl p-1 text-orange-500 transition hover:bg-orange-200 hover:text-orange-700"
+                    aria-label="Discard draft"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </Card>
       )}
@@ -415,6 +532,7 @@ export function GroupDetailPage() {
         </Card>
       )}
       <ConfirmDialog {...deleteGroupConfirm.dialogProps} isLoading={isDeletingGroup} />
+      <ConfirmDialog {...discardDraftsConfirm.dialogProps} />
     </div>
   )
 }

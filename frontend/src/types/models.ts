@@ -15,6 +15,7 @@ export type AuthResponse = {
 export type Group = {
   id: string
   name: string
+  profile_picture: string | null
   created_by: string
   created_at: string
 }
@@ -52,7 +53,6 @@ export type Receipt = {
   id: string
   group_id: string
   uploaded_by: string
-  image_path: string
   nickname?: string | null
   merchant_name?: string | null
   total_amount?: string | null
@@ -118,6 +118,20 @@ export type GroupHistoryEntryData = {
   split_type?: string | null
   /** Payer display name (stored as `created_by` on the API) */
   created_by?: string | null
+  splits?: GroupHistoryEntrySplitLine[]
+}
+
+/** `data` payload for `GroupHistoryItem` when `type === 'receipt'` */
+export type GroupHistoryReceiptData = {
+  status?: string | null
+  nickname?: string | null
+  merchant_name?: string | null
+  total_amount?: string | null
+  currency?: string | null
+  uploaded_by?: string | null
+  paid_by_user_id?: string | null
+  /** Payer display name */
+  paid_by?: string | null
   splits?: GroupHistoryEntrySplitLine[]
 }
 

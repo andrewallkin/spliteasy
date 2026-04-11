@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 *.sqlite3
 
 backend/.venv/

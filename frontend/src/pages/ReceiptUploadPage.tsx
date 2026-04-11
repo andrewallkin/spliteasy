@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
-import { getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
+import { deleteReceipt, getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
 import { api } from '@/api/client'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useToast } from '@/context/ToastContext'
+import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type { GroupMember, OCRLineItem, Receipt } from '@/types/models'
 import { DEFAULT_CURRENCY, formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
@@ -70,6 +72,10 @@ export function ReceiptUploadPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const [searchParams] = useSearchParams()
+  const resumeReceiptId = searchParams.get('receiptId')
+  const discardConfirm = useConfirmDialog()
+  const intentionalNavRef = useRef(false)
   const [step, setStep] = useState<Step>('capture')
   const [files, setFiles] = useState<File[]>([])
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -95,28 +101,90 @@ export function ReceiptUploadPage() {
       .catch(() => {/* best-effort */})
   }, [id])
 
+  // Resume an existing pending_review draft when navigated here with ?receiptId=
+  useEffect(() => {
+    if (!resumeReceiptId) return
+    void (async () => {
+      try {
+        setStep('processing')
+        const [existingReceipt, ocrItems] = await Promise.all([
+          api.get<Receipt>(`/receipts/${resumeReceiptId}`),
+          api.get<OCRLineItem[]>(`/receipts/${resumeReceiptId}/items`),
+        ])
+        setReceipt(existingReceipt.data)
+        setMerchantName(existingReceipt.data.merchant_name ?? '')
+        setTotalAmount(String(existingReceipt.data.total_amount ?? ''))
+        setItems(ocrItems.data.map((item, index) => fromOCRItem(item, index)))
+        setNextKey(ocrItems.data.length)
+        setStep('confirm')
+      } catch {
+        addToast('error', 'Unable to load receipt draft')
+        setStep('capture')
+      }
+    })()
+  }, [resumeReceiptId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Block navigation away from confirm step — draft exists on the backend at this point
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      !intentionalNavRef.current &&
+      step === 'confirm' &&
+      currentLocation.pathname !== nextLocation.pathname,
+  )
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void (async () => {
+      const confirmed = await discardConfirm.confirm({
+        title: 'Discard receipt draft?',
+        message: 'If you leave now, this draft will be deleted.',
+        confirmLabel: 'Discard',
+      })
+      if (confirmed) {
+        if (receipt) await deleteReceipt(receipt.id).catch(() => {/* best-effort */})
+        blocker.proceed()
+      } else {
+        blocker.reset()
+      }
+    })()
+  }, [blocker.state]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const me = members[0]
   const partner = members[1]
 
   // Live split summary
   const splitSummary = useMemo(() => {
     if (!me || !partner) return null
-    let meOwes = 0
-    let partnerOwes = 0
+    let meShare = 0
+    let partnerShare = 0
     for (const item of items) {
       const total = parseFloat(item.final_line_total) || 0
       if (item.assignee === me.user_id) {
-        partnerOwes += total
+        meShare += total
       } else if (item.assignee === partner.user_id) {
-        meOwes += total
+        partnerShare += total
       } else {
         // split
-        meOwes += total / 2
-        partnerOwes += total / 2
+        meShare += total / 2
+        partnerShare += total / 2
       }
     }
-    return { me: meOwes, partner: partnerOwes }
-  }, [items, me, partner])
+
+    let meOwes = meShare
+    let partnerOwes = partnerShare
+    if (paidBy === me.user_id) {
+      meOwes = 0
+    } else if (paidBy === partner.user_id) {
+      partnerOwes = 0
+    }
+
+    return {
+      meShare,
+      partnerShare,
+      meOwes,
+      partnerOwes,
+    }
+  }, [items, me, paidBy, partner])
 
   // Determine paid-by partner (the other member)
   const partnerId = paidBy === me?.user_id ? partner?.user_id ?? '' : me?.user_id ?? ''
@@ -154,9 +222,17 @@ export function ReceiptUploadPage() {
     try {
       setStep('processing')
       const uploaded = await uploadReceipt(id, files)
+
+      // OCR failed — receipt is kept in DB for observability (status: ocr_failed); just show error
+      if (uploaded.status === 'ocr_failed') {
+        addToast('error', 'Could not read receipt. Please try again or add items manually.')
+        setStep('capture')
+        return
+      }
+
       setReceipt(uploaded)
       setMerchantName(uploaded.merchant_name ?? '')
-      setTotalAmount(uploaded.total_amount ?? '')
+      setTotalAmount(String(uploaded.total_amount ?? ''))
 
       // Fetch the created line items (with IDs and enriched fields)
       const ocrItems = (
@@ -169,6 +245,23 @@ export function ReceiptUploadPage() {
       addToast('error', getErrorMessage(error, 'Unable to process receipt'))
       setStep('capture')
     }
+  }
+
+  async function onCancel() {
+    if (!receipt) {
+      intentionalNavRef.current = true
+      navigate(`/groups/${id}`)
+      return
+    }
+    const confirmed = await discardConfirm.confirm({
+      title: 'Discard receipt draft?',
+      message: 'This draft will be permanently deleted.',
+      confirmLabel: 'Discard',
+    })
+    if (!confirmed) return
+    await deleteReceipt(receipt.id).catch(() => {/* best-effort */})
+    intentionalNavRef.current = true
+    navigate(`/groups/${id}`)
   }
 
   async function onConfirm() {
@@ -275,7 +368,6 @@ export function ReceiptUploadPage() {
             <input
               type="file"
               accept="image/*,.heic,.heif"
-              capture="environment"
               multiple
               className="hidden"
               onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
@@ -329,7 +421,7 @@ export function ReceiptUploadPage() {
               <select
                 value={paidBy}
                 onChange={(e) => setPaidBy(e.target.value)}
-                className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
+                className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
               >
                 {members.map((m) => (
                   <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
@@ -463,16 +555,30 @@ export function ReceiptUploadPage() {
           {splitSummary && me && partner && (
             <Card className="space-y-2 bg-surface-secondary">
               <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-secondary">{partner.display_name} share</span>
+                <span className="font-bold tabular-nums text-ink">
+                  {formatCurrency(splitSummary.partnerShare, currency)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-secondary">{me.display_name} share</span>
+                <span className="font-bold tabular-nums text-ink">
+                  {formatCurrency(splitSummary.meShare, currency)}
+                </span>
+              </div>
+              <p className="pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{partner.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.partner, currency)}
+                  {formatCurrency(splitSummary.partnerOwes, currency)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{me.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.me, currency)}
+                  {formatCurrency(splitSummary.meOwes, currency)}
                 </span>
               </div>
             </Card>
@@ -484,6 +590,14 @@ export function ReceiptUploadPage() {
             className="w-full"
           >
             {isSaving ? 'Saving...' : 'Confirm Receipt'}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={onCancel}
+            disabled={isSaving}
+            className="w-full"
+          >
+            Cancel
           </Button>
         </div>
       )}
@@ -500,6 +614,8 @@ export function ReceiptUploadPage() {
           <Button onClick={() => navigate(`/groups/${id}`)} className="w-full">Back to group</Button>
         </Card>
       )}
+
+      <ConfirmDialog {...discardConfirm.dialogProps} />
     </div>
   )
 }

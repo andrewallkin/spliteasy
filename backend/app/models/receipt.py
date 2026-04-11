@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, JSON, Numeric, String, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    LargeBinary,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,7 +23,7 @@ from app.models.enums import ReceiptStatus
 class Receipt(Base):
     __tablename__ = "receipts"
     __table_args__ = (
-        CheckConstraint("length(trim(image_path)) > 0", name="ck_receipts_image_path_nonempty"),
+        CheckConstraint("length(trim(image_mime_type)) > 0", name="ck_receipts_image_mime_type_nonempty"),
         CheckConstraint(
             "total_amount IS NULL OR total_amount > 0", name="ck_receipts_total_amount_positive"
         ),
@@ -26,7 +36,8 @@ class Receipt(Base):
     uploaded_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
-    image_path: Mapped[str] = mapped_column(String(1024))
+    image_data: Mapped[bytes] = mapped_column(LargeBinary)
+    image_mime_type: Mapped[str] = mapped_column(String(64), default="image/jpeg")
     nickname: Mapped[str | None] = mapped_column(String(255), nullable=True)
     merchant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     receipt_date: Mapped[str | None] = mapped_column(String(40), nullable=True)

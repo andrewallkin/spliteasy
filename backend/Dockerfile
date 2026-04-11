@@ -17,7 +17,6 @@ RUN uv sync --frozen --no-dev
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
 COPY run_migrations.sh /app/run_migrations.sh
-COPY scripts /app/scripts
 RUN chmod +x /app/run_migrations.sh
 
 EXPOSE 8000

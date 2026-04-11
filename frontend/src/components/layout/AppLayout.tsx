@@ -63,21 +63,23 @@ function tabActive(pathname: string, tabTo: string): boolean {
 export function AppLayout() {
   const location = useLocation()
   return (
-    <div className="mx-auto min-h-screen w-full max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px] pb-[calc(5rem+env(safe-area-inset-bottom))]">
+    <div className="min-h-screen w-full pb-[calc(5rem+env(safe-area-inset-bottom))]">
       <a href="#main-content" className="sr-only focus:not-sr-only">
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 border-b border-white/40 glass px-5 py-4 md:px-6 lg:px-8">
-        <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-40 w-full border-b border-white/40 glass">
+        <div className="mx-auto flex w-full max-w-[768px] items-center gap-2 px-4 py-4 md:px-6 lg:max-w-[1200px] lg:px-8 xl:max-w-[1360px]">
           <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-xl ring-1 ring-ink-faint/15">
             <img src="/spliteasy-icon.jpeg" alt="" className="h-full w-full object-cover" width={32} height={32} />
           </div>
           <h1 className="text-lg font-bold text-ink">SplitEasy</h1>
         </div>
       </header>
-      <main id="main-content" className="px-4 py-5 md:px-6 lg:px-8" aria-live="polite">
-        <Outlet />
-      </main>
+      <div className="mx-auto w-full max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px]">
+        <main id="main-content" className="px-4 py-5 md:px-6 lg:px-8" aria-live="polite">
+          <Outlet />
+        </main>
+      </div>
       <nav
         aria-label="Main navigation"
         className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/40 glass pb-[env(safe-area-inset-bottom)]"

@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
@@ -16,30 +16,38 @@ import { ReceiptUploadPage } from '@/pages/ReceiptUploadPage'
 import { RegisterPage } from '@/pages/RegisterPage'
 import { SettlePage } from '@/pages/SettlePage'
 
+const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> },
+  { path: '/register', element: <RegisterPage /> },
+  {
+    element: <ProtectedRoute />,
+    children: [
+      { path: '/join/:groupId', element: <JoinGroupPage /> },
+      {
+        element: <AppLayout />,
+        children: [
+          { path: '/', element: <GroupListPage /> },
+          { path: '/groups', element: <Navigate to="/" replace /> },
+          { path: '/groups/:id', element: <GroupDetailPage /> },
+          { path: '/groups/:id/upload', element: <ReceiptUploadPage /> },
+          { path: '/groups/:id/manual', element: <ManualEntryPage /> },
+          { path: '/groups/:id/history', element: <HistoryPage /> },
+          { path: '/groups/:id/settle', element: <SettlePage /> },
+          { path: '/history', element: <HistoryPage /> },
+          { path: '/add', element: <AddExpensePage /> },
+          { path: '/profile', element: <ProfilePage /> },
+        ],
+      },
+    ],
+  },
+  { path: '*', element: <NotFoundPage /> },
+])
+
 export function AppRouter() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route element={<ProtectedRoute />}>
-          <Route path="/join/:groupId" element={<JoinGroupPage />} />
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<GroupListPage />} />
-            <Route path="/groups" element={<Navigate to="/" replace />} />
-            <Route path="/groups/:id" element={<GroupDetailPage />} />
-            <Route path="/groups/:id/upload" element={<ReceiptUploadPage />} />
-            <Route path="/groups/:id/manual" element={<ManualEntryPage />} />
-            <Route path="/groups/:id/history" element={<HistoryPage />} />
-            <Route path="/groups/:id/settle" element={<SettlePage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/add" element={<AddExpensePage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-          </Route>
-        </Route>
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
+    <>
+      <RouterProvider router={router} />
       <ToastViewport />
-    </BrowserRouter>
+    </>
   )
 }
