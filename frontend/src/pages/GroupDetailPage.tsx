@@ -264,7 +264,7 @@ export function GroupDetailPage() {
                 id="group-name"
                 value={nameDraft}
                 onChange={(event) => setNameDraft(event.target.value)}
-                className="w-full rounded-2xl border border-ink-faint/40 bg-surface px-4 py-2.5 text-sm text-ink focus:border-pastel-purple focus:outline-none"
+                className="w-full rounded-2xl border border-ink-faint/40 bg-surface px-4 py-2.5 text-base text-ink focus:border-pastel-purple focus:outline-none"
                 maxLength={255}
               />
               <div className="flex gap-2">

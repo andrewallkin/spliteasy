@@ -408,7 +408,7 @@ export function ReceiptUploadPage() {
               <select
                 value={paidBy}
                 onChange={(e) => setPaidBy(e.target.value)}
-                className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
+                className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
               >
                 {members.map((m) => (
                   <option key={m.user_id} value={m.user_id}>{m.display_name}</option>

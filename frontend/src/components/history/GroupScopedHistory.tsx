@@ -558,7 +558,7 @@ export function ReceiptDetailModal({
                   value={paidBy}
                   onChange={(e) => onPaidByChange(e.target.value)}
                   disabled={isSaving || isDeleting}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((m) => (
                     <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
@@ -1053,7 +1053,7 @@ export function EntryDetailModal({
                   value={paidBy}
                   onChange={(event) => onPaidByChange(event.target.value)}
                   disabled={!canEdit || isSaving || isDeleting}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((member) => (
                     <option key={member.user_id} value={member.user_id}>
@@ -1099,7 +1099,7 @@ export function EntryDetailModal({
                     value={fullSplitUserId}
                     onChange={(event) => onFullSplitUserIdChange(event.target.value)}
                     disabled={!canEdit || isSaving || isDeleting}
-                    className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
+                    className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                   >
                     {members
                       .filter((member) => member.user_id !== paidBy)

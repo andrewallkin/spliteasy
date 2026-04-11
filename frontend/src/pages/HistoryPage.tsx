@@ -95,7 +95,7 @@ function GlobalHistoryPage() {
           id="groupFilter"
           value={selectedGroupId}
           onChange={(event) => setSelectedGroupId(event.target.value)}
-          className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-sm text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
+          className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
         >
           <option value="">All groups</option>
           {groups.map((group) => (
