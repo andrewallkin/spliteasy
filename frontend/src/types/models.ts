@@ -120,6 +120,20 @@ export type GroupHistoryEntryData = {
   splits?: GroupHistoryEntrySplitLine[]
 }
 
+/** `data` payload for `GroupHistoryItem` when `type === 'receipt'` */
+export type GroupHistoryReceiptData = {
+  status?: string | null
+  nickname?: string | null
+  merchant_name?: string | null
+  total_amount?: string | null
+  currency?: string | null
+  uploaded_by?: string | null
+  paid_by_user_id?: string | null
+  /** Payer display name */
+  paid_by?: string | null
+  splits?: GroupHistoryEntrySplitLine[]
+}
+
 export type GroupHistoryItem = {
   type: 'receipt' | 'entry' | 'settlement'
   id: string

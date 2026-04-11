@@ -23,6 +23,7 @@ import { type ConfirmDialogOptions, useConfirmDialog } from '@/hooks/useConfirmD
 import type {
   GroupHistoryEntryData,
   GroupHistoryItem,
+  GroupHistoryReceiptData,
   GroupMember,
   ManualEntryDetail,
   OCRLineItem,
@@ -103,6 +104,7 @@ export function HistoryCard({
   const badge = typeBadge[item.type] ?? typeBadge.entry
   const data = item.data as Record<string, string | null | undefined>
   const entryData = item.type === 'entry' ? (item.data as GroupHistoryEntryData) : null
+  const receiptData = item.type === 'receipt' ? (item.data as GroupHistoryReceiptData) : null
   const isEntry = item.type === 'entry'
   const isReceipt = item.type === 'receipt'
   const isClickable = isEntry || isReceipt
@@ -174,7 +176,7 @@ export function HistoryCard({
         </div>
       )}
 
-      {item.type === 'receipt' && (
+      {item.type === 'receipt' && receiptData && (
         <div className="flex items-start gap-3">
           <button
             type="button"
@@ -198,28 +200,58 @@ export function HistoryCard({
               </div>
             )}
           </button>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <p className="font-semibold text-ink">
-              {data.nickname || data.merchant_name || 'Receipt'}
+              {receiptData.nickname || receiptData.merchant_name || 'Receipt'}
             </p>
-            {data.nickname && data.merchant_name && (
-              <p className="text-xs text-ink-tertiary">{data.merchant_name}</p>
+            {receiptData.nickname && receiptData.merchant_name && (
+              <p className="text-xs text-ink-tertiary">{receiptData.merchant_name}</p>
             )}
-            <div className="mt-1.5 flex items-baseline justify-between">
-              {data.total_amount && (
+            {receiptData.total_amount && (
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Total</span>
                 <span className="text-xl font-bold text-ink">
                   {formatCurrency(
-                    Number(data.total_amount),
-                    typeof data.currency === 'string' ? data.currency : undefined,
+                    Number(receiptData.total_amount),
+                    typeof receiptData.currency === 'string' ? receiptData.currency : undefined,
                   )}
                 </span>
-              )}
-              <span className="text-xs text-ink-tertiary">
-                {data.uploaded_by ? `created by ${data.uploaded_by}` : data.status}
-              </span>
-            </div>
+              </div>
+            )}
+            {receiptData.paid_by && (
+              <p className="text-sm text-ink-secondary">
+                <span className="font-semibold text-ink">Paid by </span>
+                {receiptData.paid_by}
+              </p>
+            )}
+            {receiptData.splits && receiptData.splits.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Split</p>
+                <ul className="space-y-0.5">
+                  {receiptData.splits.map((line) => (
+                    <li
+                      key={`${line.display_name}-${line.amount}`}
+                      className="flex justify-between gap-3 text-sm text-ink-secondary"
+                    >
+                      <span>{line.display_name}</span>
+                      <span className="shrink-0 font-semibold tabular-nums text-ink">
+                        {formatCurrency(
+                          Number(line.amount),
+                          typeof receiptData.currency === 'string' ? receiptData.currency : undefined,
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {receiptData.uploaded_by &&
+              receiptData.paid_by &&
+              receiptData.uploaded_by !== receiptData.paid_by && (
+              <p className="text-xs text-ink-tertiary">Uploaded by {receiptData.uploaded_by}</p>
+            )}
             {isReceipt && (
-              <p className="mt-1 text-[10px] text-ink-faint">Tap to view details</p>
+              <p className="text-[10px] text-ink-faint">Tap to view details</p>
             )}
           </div>
         </div>
