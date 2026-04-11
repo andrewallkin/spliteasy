@@ -485,21 +485,35 @@ export function ReceiptDetailModal({
 
   const splitSummary = useMemo(() => {
     if (!me || !partner) return null
-    let meOwes = 0
-    let partnerOwes = 0
+    let meShare = 0
+    let partnerShare = 0
     for (const item of items) {
       const total = parseFloat(item.final_line_total) || 0
       if (item.assignee === me.user_id) {
-        partnerOwes += total
+        meShare += total
       } else if (item.assignee === partner.user_id) {
-        meOwes += total
+        partnerShare += total
       } else {
-        meOwes += total / 2
-        partnerOwes += total / 2
+        meShare += total / 2
+        partnerShare += total / 2
       }
     }
-    return { me: meOwes, partner: partnerOwes }
-  }, [items, me, partner])
+
+    let meOwes = meShare
+    let partnerOwes = partnerShare
+    if (paidBy === me.user_id) {
+      meOwes = 0
+    } else if (paidBy === partner.user_id) {
+      partnerOwes = 0
+    }
+
+    return {
+      meShare,
+      partnerShare,
+      meOwes,
+      partnerOwes,
+    }
+  }, [items, me, paidBy, partner])
 
   if (!isOpen) return null
 
@@ -666,13 +680,23 @@ export function ReceiptDetailModal({
             {splitSummary && me && partner && (
               <div className="rounded-2xl bg-surface-secondary p-3 text-sm text-ink-secondary">
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</p>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+                <div className="flex justify-between">
+                  <span>{partner.display_name} share</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerShare, currency || DEFAULT_CURRENCY)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>{me.display_name} share</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meShare, currency || DEFAULT_CURRENCY)}</span>
+                </div>
+                <p className="mb-1 pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
                 <div className="flex justify-between">
                   <span>{partner.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partner, currency || DEFAULT_CURRENCY)}</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerOwes, currency || DEFAULT_CURRENCY)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>{me.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.me, currency || DEFAULT_CURRENCY)}</span>
+                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meOwes, currency || DEFAULT_CURRENCY)}</span>
                 </div>
               </div>
             )}

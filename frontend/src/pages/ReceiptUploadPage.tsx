@@ -155,22 +155,36 @@ export function ReceiptUploadPage() {
   // Live split summary
   const splitSummary = useMemo(() => {
     if (!me || !partner) return null
-    let meOwes = 0
-    let partnerOwes = 0
+    let meShare = 0
+    let partnerShare = 0
     for (const item of items) {
       const total = parseFloat(item.final_line_total) || 0
       if (item.assignee === me.user_id) {
-        partnerOwes += total
+        meShare += total
       } else if (item.assignee === partner.user_id) {
-        meOwes += total
+        partnerShare += total
       } else {
         // split
-        meOwes += total / 2
-        partnerOwes += total / 2
+        meShare += total / 2
+        partnerShare += total / 2
       }
     }
-    return { me: meOwes, partner: partnerOwes }
-  }, [items, me, partner])
+
+    let meOwes = meShare
+    let partnerOwes = partnerShare
+    if (paidBy === me.user_id) {
+      meOwes = 0
+    } else if (paidBy === partner.user_id) {
+      partnerOwes = 0
+    }
+
+    return {
+      meShare,
+      partnerShare,
+      meOwes,
+      partnerOwes,
+    }
+  }, [items, me, paidBy, partner])
 
   // Determine paid-by partner (the other member)
   const partnerId = paidBy === me?.user_id ? partner?.user_id ?? '' : me?.user_id ?? ''
@@ -541,16 +555,30 @@ export function ReceiptUploadPage() {
           {splitSummary && me && partner && (
             <Card className="space-y-2 bg-surface-secondary">
               <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-secondary">{partner.display_name} share</span>
+                <span className="font-bold tabular-nums text-ink">
+                  {formatCurrency(splitSummary.partnerShare, currency)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-secondary">{me.display_name} share</span>
+                <span className="font-bold tabular-nums text-ink">
+                  {formatCurrency(splitSummary.meShare, currency)}
+                </span>
+              </div>
+              <p className="pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{partner.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.partner, currency)}
+                  {formatCurrency(splitSummary.partnerOwes, currency)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{me.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.me, currency)}
+                  {formatCurrency(splitSummary.meOwes, currency)}
                 </span>
               </div>
             </Card>
