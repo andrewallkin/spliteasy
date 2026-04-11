@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import {
@@ -11,6 +11,7 @@ import {
   inviteToGroup,
   listReceipts,
   updateGroup,
+  updateGroupProfilePicture,
 } from '@/api/groups'
 import { GroupScopedHistory } from '@/components/history/GroupScopedHistory'
 import { Button } from '@/components/ui/Button'
@@ -46,6 +47,8 @@ export function GroupDetailPage() {
   const [nameDraft, setNameDraft] = useState('')
   const [isSavingName, setIsSavingName] = useState(false)
   const [isDeletingGroup, setIsDeletingGroup] = useState(false)
+  const [uploadingGroupPic, setUploadingGroupPic] = useState(false)
+  const groupPicInputRef = useRef<HTMLInputElement>(null)
 
   const partner = members.find((m) => m.user_id !== user?.id)
   const myMembership = members.find((m) => m.user_id === user?.id)
@@ -168,6 +171,45 @@ export function GroupDetailPage() {
     setPendingReceipts((prev) => prev.filter((r) => r.id !== receiptId))
   }
 
+  async function onGroupPictureChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      addToast('error', 'Image must be under 10 MB')
+      return
+    }
+    setUploadingGroupPic(true)
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const updated = await updateGroupProfilePicture(id, base64)
+      setGroup(updated)
+      addToast('success', 'Group picture updated')
+    } catch (err) {
+      addToast('error', getErrorMessage(err, 'Failed to upload picture'))
+    } finally {
+      setUploadingGroupPic(false)
+      if (groupPicInputRef.current) groupPicInputRef.current.value = ''
+    }
+  }
+
+  async function onRemoveGroupPicture() {
+    setUploadingGroupPic(true)
+    try {
+      const updated = await updateGroupProfilePicture(id, '')
+      setGroup(updated)
+      addToast('success', 'Group picture removed')
+    } catch (err) {
+      addToast('error', getErrorMessage(err, 'Failed to remove picture'))
+    } finally {
+      setUploadingGroupPic(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -182,6 +224,36 @@ export function GroupDetailPage() {
     <div className="space-y-4">
       {/* Group header & balance */}
       <Card className="space-y-3">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="group relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-pastel-purple/20 to-pastel-lavender/20"
+            onClick={() => groupPicInputRef.current?.click()}
+            disabled={uploadingGroupPic}
+          >
+            {group?.profile_picture ? (
+              <img src={group.profile_picture} alt={group.name} className="h-full w-full object-cover" />
+            ) : (
+              <svg className="h-7 w-7 text-pastel-purple-deep" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+            )}
+            <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+              {uploadingGroupPic ? '...' : 'Edit'}
+            </span>
+          </button>
+          <input ref={groupPicInputRef} type="file" accept="image/*" className="hidden" onChange={onGroupPictureChange} />
+          {group?.profile_picture && (
+            <button
+              type="button"
+              className="text-xs text-ink-tertiary underline hover:text-ink-secondary"
+              onClick={onRemoveGroupPicture}
+              disabled={uploadingGroupPic}
+            >
+              Remove photo
+            </button>
+          )}
+        </div>
         <div className="space-y-3">
           {isOwner && isEditingName ? (
             <div className="space-y-2">

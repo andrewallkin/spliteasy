@@ -30,11 +30,16 @@ class GroupJoinByCodeRequest(BaseModel):
 class GroupOut(BaseModel):
     id: uuid.UUID
     name: str
+    profile_picture: str | None = None
     created_by: uuid.UUID
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class GroupProfilePictureRequest(BaseModel):
+    profile_picture: str
 
 
 class GroupBalanceResponse(BaseModel):

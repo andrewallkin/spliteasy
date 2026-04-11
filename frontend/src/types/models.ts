@@ -15,6 +15,7 @@ export type AuthResponse = {
 export type Group = {
   id: string
   name: string
+  profile_picture: string | null
   created_by: string
   created_at: string
 }

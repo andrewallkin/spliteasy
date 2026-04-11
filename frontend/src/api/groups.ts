@@ -64,6 +64,11 @@ export async function updateGroup(groupId: string, name: string) {
   return response.data
 }
 
+export async function updateGroupProfilePicture(groupId: string, picture: string) {
+  const response = await api.patch<Group>(`/groups/${groupId}/profile-picture`, { profile_picture: picture })
+  return response.data
+}
+
 export async function deleteGroup(groupId: string) {
   await api.delete(`/groups/${groupId}`)
 }

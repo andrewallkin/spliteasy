@@ -1,3 +1,5 @@
+import base64
+import binascii
 import secrets
 import uuid
 from collections import defaultdict
@@ -25,11 +27,13 @@ from app.schemas.groups import (
     GroupJoinByCodeRequest,
     GroupJoinRequest,
     GroupOut,
+    GroupProfilePictureRequest,
     GroupUpdateRequest,
 )
 from app.services.balances import compute_group_balances
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_MAX_GROUP_PICTURE_BYTES = 10 * 1024 * 1024
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -342,6 +346,37 @@ async def update_group(
         raise HTTPException(status_code=404, detail="Group not found")
 
     group.name = _normalize_group_name(payload.name)
+    await db.commit()
+    await db.refresh(group)
+    return GroupOut.model_validate(group)
+
+
+@router.patch("/{group_id}/profile-picture", response_model=GroupOut)
+async def update_group_profile_picture(
+    group_id: uuid.UUID,
+    payload: GroupProfilePictureRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    group = await db.get(Group, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    if payload.profile_picture:
+        encoded_payload = payload.profile_picture
+        if "," in encoded_payload and encoded_payload.startswith("data:"):
+            encoded_payload = encoded_payload.split(",", 1)[1]
+        try:
+            decoded = base64.b64decode(encoded_payload, validate=True)
+        except binascii.Error as exc:
+            raise HTTPException(status_code=400, detail="Profile picture must be a valid base64 image") from exc
+        if len(decoded) > _MAX_GROUP_PICTURE_BYTES:
+            raise HTTPException(status_code=400, detail="Profile picture must be under 10 MB")
+        group.profile_picture = payload.profile_picture
+    else:
+        group.profile_picture = None
+
     await db.commit()
     await db.refresh(group)
     return GroupOut.model_validate(group)
