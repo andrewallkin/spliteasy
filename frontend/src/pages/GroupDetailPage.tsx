@@ -55,7 +55,6 @@ export function GroupDetailPage() {
   const partner = members.find((m) => m.user_id !== user?.id)
   const myMembership = members.find((m) => m.user_id === user?.id)
   const isOwner = myMembership?.role === 'owner'
-  const hasPartner = members.length >= 2
   const isMultiUser = members.length > 2
 
   const myBalance = balance?.balances.find((b) => b.user_id === user?.id)
