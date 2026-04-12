@@ -39,3 +39,11 @@ class GroupMemberOut(BaseModel):
 class BalanceItem(BaseModel):
     user_id: uuid.UUID
     net_amount: Decimal = Field(..., decimal_places=2)
+
+
+class SuggestedSettlement(BaseModel):
+    from_user_id: uuid.UUID
+    from_display_name: str
+    to_user_id: uuid.UUID
+    to_display_name: str
+    amount: Decimal = Field(..., decimal_places=2)

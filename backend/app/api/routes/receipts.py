@@ -255,9 +255,7 @@ async def assign_receipt(
         raise HTTPException(status_code=400, detail="Receipt must be confirmed before assignment")
 
     members = (await db.scalars(select(GroupMember).where(GroupMember.group_id == receipt.group_id))).all()
-    member_ids = sorted([member.user_id for member in members], key=lambda value: str(value))
-    if len(member_ids) != 2:
-        raise HTTPException(status_code=400, detail="MVP only supports two members")
+    member_id_set = {member.user_id for member in members}
 
     line_items = (await db.scalars(select(LineItem).where(LineItem.receipt_id == receipt.id))).all()
     line_item_ids = {line_item.id for line_item in line_items}
@@ -274,6 +272,8 @@ async def assign_receipt(
     for assignment in payload.assignments:
         item = by_id[assignment.line_item_id]
         if len(assignment.shares) == 1 and assignment.shares[0].share_type == "full":
+            if assignment.shares[0].user_id not in member_id_set:
+                raise HTTPException(status_code=400, detail="Assigned user must be a group member")
             db.add(
                 ItemAssignment(
                     line_item_id=item.id,
@@ -283,24 +283,32 @@ async def assign_receipt(
                 )
             )
         else:
-            share_a = _round(item.amount / Decimal("2"))
-            share_b = item.amount - share_a
-            db.add(
-                ItemAssignment(
-                    line_item_id=item.id,
-                    user_id=member_ids[0],
-                    share_type="equal",
-                    share_amount=share_a,
-                )
+            # Equal split among the users listed in shares
+            equal_users = sorted(
+                [s.user_id for s in assignment.shares if s.share_type == "equal"],
+                key=lambda v: str(v),
             )
-            db.add(
-                ItemAssignment(
-                    line_item_id=item.id,
-                    user_id=member_ids[1],
-                    share_type="equal",
-                    share_amount=share_b,
+            if not equal_users:
+                raise HTTPException(status_code=400, detail="Equal split requires at least one user")
+            if any(uid not in member_id_set for uid in equal_users):
+                raise HTTPException(status_code=400, detail="Assigned users must be group members")
+            n = len(equal_users)
+            per_person = _round(item.amount / Decimal(str(n)))
+            running = Decimal("0")
+            for i, uid in enumerate(equal_users):
+                if i < n - 1:
+                    share = per_person
+                    running += share
+                else:
+                    share = item.amount - running
+                db.add(
+                    ItemAssignment(
+                        line_item_id=item.id,
+                        user_id=uid,
+                        share_type="equal",
+                        share_amount=share,
+                    )
                 )
-            )
     receipt.status = "assigned"
     receipt.paid_by_user_id = payload.paid_by
     receipt.version += 1

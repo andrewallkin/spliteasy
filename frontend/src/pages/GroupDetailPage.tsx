@@ -8,6 +8,7 @@ import {
   getGroup,
   getGroupMembers,
   getInvitations,
+  getSuggestedSettlements,
   inviteToGroup,
   listReceipts,
   updateGroup,
@@ -22,7 +23,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
-import type { Group, GroupBalanceResponse, GroupInvitation, GroupMember, Receipt } from '@/types/models'
+import type { Group, GroupBalanceResponse, GroupInvitation, GroupMember, Receipt, SuggestedSettlement } from '@/types/models'
 import { formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
 
@@ -48,12 +49,14 @@ export function GroupDetailPage() {
   const [isSavingName, setIsSavingName] = useState(false)
   const [isDeletingGroup, setIsDeletingGroup] = useState(false)
   const [uploadingGroupPic, setUploadingGroupPic] = useState(false)
+  const [suggestedSettlements, setSuggestedSettlements] = useState<SuggestedSettlement[]>([])
   const groupPicInputRef = useRef<HTMLInputElement>(null)
 
   const partner = members.find((m) => m.user_id !== user?.id)
   const myMembership = members.find((m) => m.user_id === user?.id)
   const isOwner = myMembership?.role === 'owner'
   const hasPartner = members.length >= 2
+  const isMultiUser = members.length > 2
 
   const myBalance = balance?.balances.find((b) => b.user_id === user?.id)
   const myNet = Number(myBalance?.net_amount ?? 0)
@@ -74,6 +77,10 @@ export function GroupDetailPage() {
         setMembers(membersData)
         setPendingReceipts(receiptsData)
         setInvitations(invData)
+        // Fetch suggested settlements for multi-user groups
+        if (membersData.length > 2) {
+          getSuggestedSettlements(id).then(setSuggestedSettlements).catch(() => {/* best-effort */})
+        }
       } catch (error) {
         addToast('error', getErrorMessage(error, 'Unable to load group details'))
       } finally {
@@ -313,7 +320,51 @@ export function GroupDetailPage() {
             </div>
             <span className="text-sm font-semibold text-emerald-700">All settled up</span>
           </div>
+        ) : isMultiUser ? (
+          /* 3+ user balance display */
+          <div className="space-y-2">
+            <div className={`flex items-center gap-2.5 rounded-2xl px-4 py-3 ${myNet < 0 ? 'bg-rose-50/80' : myNet > 0 ? 'bg-emerald-50/80' : 'bg-emerald-50/80'}`}>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-full ${myNet < 0 ? 'bg-pastel-rose/30' : 'bg-pastel-mint/30'}`}>
+                {myNet < 0 ? (
+                  <svg className="h-4 w-4 text-pastel-rose-deep" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-pastel-mint-deep" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                  </svg>
+                )}
+              </div>
+              <span className={`text-sm font-semibold ${myNet < 0 ? 'text-rose-700' : myNet > 0 ? 'text-emerald-700' : 'text-emerald-700'}`}>
+                {myNet < 0
+                  ? `You owe ${formatCurrency(Math.abs(myNet))} total`
+                  : myNet > 0
+                    ? `You are owed ${formatCurrency(myNet)} total`
+                    : 'All settled up'}
+              </span>
+            </div>
+            {suggestedSettlements.length > 0 && (
+              <div className="space-y-1.5 rounded-2xl bg-surface-secondary px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Suggested settlements</p>
+                {suggestedSettlements.map((s, i) => {
+                  const isMe = s.from_user_id === user?.id
+                  const paysMe = s.to_user_id === user?.id
+                  return (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                      <span className="text-ink-secondary">
+                        {isMe ? 'You pay' : `${s.from_display_name} pays`} {paysMe ? 'you' : s.to_display_name}
+                      </span>
+                      <span className={`font-bold tabular-nums ${isMe ? 'text-rose-700' : paysMe ? 'text-emerald-700' : 'text-ink'}`}>
+                        {formatCurrency(Number(s.amount))}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         ) : (
+          /* 2-user balance display (unchanged) */
           <div className={`flex items-center gap-2.5 rounded-2xl px-4 py-3 ${myNet < 0 ? 'bg-rose-50/80' : 'bg-emerald-50/80'}`}>
             <div className={`flex h-8 w-8 items-center justify-center rounded-full ${myNet < 0 ? 'bg-pastel-rose/30' : 'bg-pastel-mint/30'}`}>
               {myNet < 0 ? (
@@ -469,9 +520,9 @@ export function GroupDetailPage() {
       <GroupScopedHistory groupId={id} variant="embedded" />
 
       {/* Invitations */}
-      {!hasPartner && (
+      {isOwner && (
         <Card className="space-y-4">
-          <h3 className="text-sm font-bold text-ink">Invite Partner</h3>
+          <h3 className="text-sm font-bold text-ink">{isMultiUser ? 'Invite Member' : 'Invite Partner'}</h3>
 
           {/* Create new invitation */}
           <div className="space-y-2">

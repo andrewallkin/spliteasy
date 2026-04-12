@@ -49,15 +49,27 @@ def _build_split_rows(
         raise HTTPException(status_code=400, detail="paid_by must be a group member")
 
     if split_type == "equal":
-        if len(member_ids) != 2:
-            raise HTTPException(status_code=400, detail="MVP groups must have exactly 2 members")
-        members_sorted = sorted(member_ids, key=lambda value: str(value))
-        share_a = _round_money(total_amount / Decimal("2"))
-        share_b = total_amount - share_a
-        return [
-            {"user_id": members_sorted[0], "amount": share_a, "percentage": None},
-            {"user_id": members_sorted[1], "amount": share_b, "percentage": None},
-        ]
+        # If splits list is non-empty, treat as "custom equal" among listed users only
+        if splits:
+            target_ids = {s.user_id for s in splits}
+            if not target_ids.issubset(member_ids):
+                raise HTTPException(status_code=400, detail="Split users must be group members")
+            if len(target_ids) < 1:
+                raise HTTPException(status_code=400, detail="At least one user must be selected")
+        else:
+            target_ids = member_ids
+        targets_sorted = sorted(target_ids, key=lambda value: str(value))
+        n = len(targets_sorted)
+        per_person = _round_money(total_amount / Decimal(str(n)))
+        rows: list[dict[str, uuid.UUID | Decimal | None]] = []
+        running = Decimal("0")
+        for i, uid in enumerate(targets_sorted):
+            if i < n - 1:
+                rows.append({"user_id": uid, "amount": per_person, "percentage": None})
+                running += per_person
+            else:
+                rows.append({"user_id": uid, "amount": total_amount - running, "percentage": None})
+        return rows
 
     if split_type == "full":
         if len(splits) != 1:
@@ -72,8 +84,8 @@ def _build_split_rows(
         ]
 
     if split_type == "percentage":
-        if len(splits) != 2:
-            raise HTTPException(status_code=400, detail="Percentage split requires two users")
+        if len(splits) < 2:
+            raise HTTPException(status_code=400, detail="Percentage split requires at least two users")
         if any(split.user_id not in member_ids for split in splits):
             raise HTTPException(status_code=400, detail="Split users must be group members")
         split_user_ids = {split.user_id for split in splits}
@@ -83,16 +95,21 @@ def _build_split_rows(
         if abs(total_percentage - Decimal("100")) > Decimal("0.01"):
             raise HTTPException(status_code=400, detail="Percentage must equal 100")
 
-        first = splits[0]
-        second = splits[1]
-        first_amount = _round_money(total_amount * (first.percentage or 0) / Decimal("100"))
-        second_amount = total_amount - first_amount
-        if first_amount <= 0 or second_amount <= 0:
+        rows = []
+        running = Decimal("0")
+        for i, split in enumerate(splits):
+            if i < len(splits) - 1:
+                amount = _round_money(total_amount * (split.percentage or 0) / Decimal("100"))
+                rows.append({"user_id": split.user_id, "amount": amount, "percentage": split.percentage})
+                running += amount
+            else:
+                remainder = total_amount - running
+                if remainder <= 0:
+                    raise HTTPException(status_code=400, detail="Each split amount must be positive")
+                rows.append({"user_id": split.user_id, "amount": remainder, "percentage": split.percentage})
+        if any(r["amount"] <= 0 for r in rows):
             raise HTTPException(status_code=400, detail="Each split amount must be positive")
-        return [
-            {"user_id": first.user_id, "amount": first_amount, "percentage": first.percentage},
-            {"user_id": second.user_id, "amount": second_amount, "percentage": second.percentage},
-        ]
+        return rows
 
     raise HTTPException(status_code=400, detail="Unsupported split_type")
 

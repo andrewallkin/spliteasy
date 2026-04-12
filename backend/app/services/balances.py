@@ -53,3 +53,42 @@ async def compute_group_balances(db: AsyncSession, group_id: uuid.UUID) -> dict[
         totals[settlement.paid_to] -= amount
 
     return totals
+
+
+def compute_suggested_settlements(
+    balances: dict[uuid.UUID, Decimal],
+) -> list[dict[str, uuid.UUID | Decimal]]:
+    """Compute minimal set of transfers to settle all debts using a greedy algorithm."""
+    debtors: list[list] = []  # [user_id, abs_amount]
+    creditors: list[list] = []  # [user_id, amount]
+
+    for uid, amount in balances.items():
+        if amount < 0:
+            debtors.append([uid, abs(amount)])
+        elif amount > 0:
+            creditors.append([uid, amount])
+
+    # Sort descending by amount for greedy matching
+    debtors.sort(key=lambda x: x[1], reverse=True)
+    creditors.sort(key=lambda x: x[1], reverse=True)
+
+    transfers: list[dict[str, uuid.UUID | Decimal]] = []
+    di, ci = 0, 0
+    while di < len(debtors) and ci < len(creditors):
+        d_id, d_amt = debtors[di]
+        c_id, c_amt = creditors[ci]
+        transfer = min(d_amt, c_amt)
+        if transfer > 0:
+            transfers.append({
+                "from_user_id": d_id,
+                "to_user_id": c_id,
+                "amount": transfer,
+            })
+        debtors[di][1] -= transfer
+        creditors[ci][1] -= transfer
+        if debtors[di][1] == 0:
+            di += 1
+        if creditors[ci][1] == 0:
+            ci += 1
+
+    return transfers

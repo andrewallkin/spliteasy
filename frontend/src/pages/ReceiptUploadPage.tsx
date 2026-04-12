@@ -26,8 +26,12 @@ type DraftItem = {
   line_discount: string
   final_line_total: string
   confidence: number
-  /** 'me' | 'split' | partner-user-id */
+  /** 2-user mode: 'me' | 'split' | partner-user-id */
   assignee: string
+  /** 3+ user mode: 'equal' (all members) or 'custom' (subset) */
+  assigneeMode: 'equal' | 'custom'
+  /** 3+ user mode: user IDs selected for custom split */
+  customAssignees: string[]
   isManual: boolean
 }
 
@@ -38,7 +42,7 @@ const stepLabels: Record<Step, string> = {
   summary: 'Done',
 }
 
-function blankItem(key: string): DraftItem {
+function blankItem(key: string, allMemberIds: string[]): DraftItem {
   return {
     key,
     description: '',
@@ -49,11 +53,13 @@ function blankItem(key: string): DraftItem {
     final_line_total: '0.00',
     confidence: 1,
     assignee: 'split',
+    assigneeMode: 'equal',
+    customAssignees: [...allMemberIds],
     isManual: true,
   }
 }
 
-function fromOCRItem(item: OCRLineItem, index: number): DraftItem {
+function fromOCRItem(item: OCRLineItem, index: number, allMemberIds: string[]): DraftItem {
   return {
     key: String(index),
     description: item.description,
@@ -64,6 +70,8 @@ function fromOCRItem(item: OCRLineItem, index: number): DraftItem {
     final_line_total: item.final_line_total ?? item.amount,
     confidence: item.confidence ?? 1,
     assignee: 'split',
+    assigneeMode: 'equal',
+    customAssignees: [...allMemberIds],
     isManual: false,
   }
 }
@@ -88,6 +96,7 @@ export function ReceiptUploadPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [nextKey, setNextKey] = useState(0)
 
+  const isMultiUser = members.length > 2
   const stepIndex = ['capture', 'processing', 'confirm', 'summary'].indexOf(step) + 1
 
   // Load group members on mount so we have them ready for the confirm step
@@ -114,7 +123,8 @@ export function ReceiptUploadPage() {
         setReceipt(existingReceipt.data)
         setMerchantName(existingReceipt.data.merchant_name ?? '')
         setTotalAmount(String(existingReceipt.data.total_amount ?? ''))
-        setItems(ocrItems.data.map((item, index) => fromOCRItem(item, index)))
+        const memberIds = members.map((m) => m.user_id)
+        setItems(ocrItems.data.map((item, index) => fromOCRItem(item, index, memberIds)))
         setNextKey(ocrItems.data.length)
         setStep('confirm')
       } catch {
@@ -152,9 +162,9 @@ export function ReceiptUploadPage() {
   const me = members[0]
   const partner = members[1]
 
-  // Live split summary
-  const splitSummary = useMemo(() => {
-    if (!me || !partner) return null
+  // Live split summary for 2-user mode
+  const splitSummary2 = useMemo(() => {
+    if (isMultiUser || !me || !partner) return null
     let meShare = 0
     let partnerShare = 0
     for (const item of items) {
@@ -164,7 +174,6 @@ export function ReceiptUploadPage() {
       } else if (item.assignee === partner.user_id) {
         partnerShare += total
       } else {
-        // split
         meShare += total / 2
         partnerShare += total / 2
       }
@@ -178,15 +187,34 @@ export function ReceiptUploadPage() {
       partnerOwes = 0
     }
 
-    return {
-      meShare,
-      partnerShare,
-      meOwes,
-      partnerOwes,
-    }
-  }, [items, me, paidBy, partner])
+    return { meShare, partnerShare, meOwes, partnerOwes }
+  }, [items, me, paidBy, partner, isMultiUser])
 
-  // Determine paid-by partner (the other member)
+  // Live split summary for 3+ user mode
+  const splitSummaryMulti = useMemo(() => {
+    if (!isMultiUser || members.length < 2) return null
+    const shares: Record<string, number> = {}
+    for (const m of members) shares[m.user_id] = 0
+
+    for (const item of items) {
+      const total = parseFloat(item.final_line_total) || 0
+      if (item.assigneeMode === 'equal') {
+        const perPerson = total / members.length
+        for (const m of members) shares[m.user_id] += perPerson
+      } else {
+        const assignees = item.customAssignees
+        if (assignees.length === 0) continue
+        const perPerson = total / assignees.length
+        for (const uid of assignees) {
+          if (shares[uid] !== undefined) shares[uid] += perPerson
+        }
+      }
+    }
+
+    return shares
+  }, [items, members, isMultiUser])
+
+  // Determine paid-by partner (the other member) — 2-user mode only
   const partnerId = paidBy === me?.user_id ? partner?.user_id ?? '' : me?.user_id ?? ''
 
   function updateItem(key: string, patch: Partial<DraftItem>) {
@@ -207,6 +235,21 @@ export function ReceiptUploadPage() {
     )
   }
 
+  function toggleItemMember(itemKey: string, userId: string) {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== itemKey) return it
+        const current = new Set(it.customAssignees)
+        if (current.has(userId)) {
+          if (current.size > 1) current.delete(userId)
+        } else {
+          current.add(userId)
+        }
+        return { ...it, customAssignees: Array.from(current) }
+      }),
+    )
+  }
+
   function deleteItem(key: string) {
     setItems((prev) => prev.filter((it) => it.key !== key))
   }
@@ -214,7 +257,7 @@ export function ReceiptUploadPage() {
   function addItem() {
     const key = String(nextKey)
     setNextKey((k) => k + 1)
-    setItems((prev) => [...prev, blankItem(key)])
+    setItems((prev) => [...prev, blankItem(key, members.map((m) => m.user_id))])
   }
 
   async function onProcessReceipt() {
@@ -223,7 +266,6 @@ export function ReceiptUploadPage() {
       setStep('processing')
       const uploaded = await uploadReceipt(id, files)
 
-      // OCR failed — receipt is kept in DB for observability (status: ocr_failed); just show error
       if (uploaded.status === 'ocr_failed') {
         addToast('error', 'Could not read receipt. Please try again or add items manually.')
         setStep('capture')
@@ -234,11 +276,11 @@ export function ReceiptUploadPage() {
       setMerchantName(uploaded.merchant_name ?? '')
       setTotalAmount(String(uploaded.total_amount ?? ''))
 
-      // Fetch the created line items (with IDs and enriched fields)
       const ocrItems = (
         await api.get<OCRLineItem[]>(`/receipts/${uploaded.id}/items`)
       ).data
-      setItems(ocrItems.map((item, index) => fromOCRItem(item, index)))
+      const memberIds = members.map((m) => m.user_id)
+      setItems(ocrItems.map((item, index) => fromOCRItem(item, index, memberIds)))
       setNextKey(ocrItems.length)
       setStep('confirm')
     } catch (error) {
@@ -302,6 +344,27 @@ export function ReceiptUploadPage() {
       // 4. Build assignments using fresh IDs mapped by sort order
       const assignments = savedItems.map((saved, index) => {
         const draft = items[index]
+
+        if (isMultiUser) {
+          // 3+ user mode
+          if (draft.assigneeMode === 'custom' && draft.customAssignees.length === 1) {
+            // Single user selected → full assignment
+            return {
+              line_item_id: saved.id,
+              shares: [{ user_id: draft.customAssignees[0], share_type: 'full' }],
+            }
+          }
+          // Equal among all or custom subset
+          const userIds = draft.assigneeMode === 'equal'
+            ? members.map((m) => m.user_id)
+            : draft.customAssignees
+          return {
+            line_item_id: saved.id,
+            shares: userIds.map((uid) => ({ user_id: uid, share_type: 'equal' })),
+          }
+        }
+
+        // 2-user mode (unchanged logic)
         const assignee = draft?.assignee ?? 'split'
         if (assignee === me?.user_id || assignee === partner?.user_id) {
           return {
@@ -309,7 +372,6 @@ export function ReceiptUploadPage() {
             shares: [{ user_id: assignee, share_type: 'full' }],
           }
         }
-        // split
         return {
           line_item_id: saved.id,
           shares: [
@@ -515,26 +577,78 @@ export function ReceiptUploadPage() {
                 {/* Split assignment */}
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Assign to</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: me?.display_name ?? 'Me', value: me?.user_id ?? 'me' },
-                      { label: 'Split', value: 'split' },
-                      { label: partner?.display_name ?? 'Partner', value: partner?.user_id ?? 'partner' },
-                    ].map(({ label, value }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateItem(item.key, { assignee: value })}
-                        className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
-                          item.assignee === value
-                            ? 'bg-pastel-purple-deep text-white'
-                            : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                  {isMultiUser ? (
+                    // 3+ user mode: Equal / Custom toggle + member buttons
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.key, { assigneeMode: 'equal' })}
+                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
+                            item.assigneeMode === 'equal'
+                              ? 'bg-pastel-purple-deep text-white'
+                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
+                          }`}
+                        >
+                          Equal
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.key, {
+                            assigneeMode: 'custom',
+                            customAssignees: [...members.map((m) => m.user_id)],
+                          })}
+                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
+                            item.assigneeMode === 'custom'
+                              ? 'bg-pastel-purple-deep text-white'
+                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
+                          }`}
+                        >
+                          Custom
+                        </button>
+                      </div>
+                      {item.assigneeMode === 'custom' && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {members.map((m) => (
+                            <button
+                              key={m.user_id}
+                              type="button"
+                              onClick={() => toggleItemMember(item.key, m.user_id)}
+                              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                                item.customAssignees.includes(m.user_id)
+                                  ? 'bg-pastel-lavender/30 text-pastel-purple-deep border border-pastel-purple'
+                                  : 'bg-surface-secondary text-ink-tertiary border border-transparent hover:bg-surface-tertiary'
+                              }`}
+                            >
+                              {m.display_name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // 2-user mode: Me / Split / Partner (unchanged)
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: me?.display_name ?? 'Me', value: me?.user_id ?? 'me' },
+                        { label: 'Split', value: 'split' },
+                        { label: partner?.display_name ?? 'Partner', value: partner?.user_id ?? 'partner' },
+                      ].map(({ label, value }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => updateItem(item.key, { assignee: value })}
+                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
+                            item.assignee === value
+                              ? 'bg-pastel-purple-deep text-white'
+                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -551,34 +665,50 @@ export function ReceiptUploadPage() {
             </button>
           </Card>
 
-          {/* Split summary */}
-          {splitSummary && me && partner && (
+          {/* Split summary — 3+ user mode */}
+          {isMultiUser && splitSummaryMulti && (
+            <Card className="space-y-2 bg-surface-secondary">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+              {members.map((m) => (
+                <div key={m.user_id} className="flex justify-between text-sm">
+                  <span className="text-ink-secondary">{m.display_name}</span>
+                  <span className="font-bold tabular-nums text-ink">
+                    {formatCurrency(splitSummaryMulti[m.user_id] ?? 0, currency)}
+                  </span>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {/* Split summary — 2-user mode (unchanged) */}
+          {!isMultiUser && splitSummary2 && me && partner && (
             <Card className="space-y-2 bg-surface-secondary">
               <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
               <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{partner.display_name} share</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.partnerShare, currency)}
+                  {formatCurrency(splitSummary2.partnerShare, currency)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{me.display_name} share</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.meShare, currency)}
+                  {formatCurrency(splitSummary2.meShare, currency)}
                 </span>
               </div>
               <p className="pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{partner.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.partnerOwes, currency)}
+                  {formatCurrency(splitSummary2.partnerOwes, currency)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-secondary">{me.display_name} owes</span>
                 <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary.meOwes, currency)}
+                  {formatCurrency(splitSummary2.meOwes, currency)}
                 </span>
               </div>
             </Card>

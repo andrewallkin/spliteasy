@@ -20,7 +20,7 @@ from app.models.line_item import ItemAssignment, LineItem
 from app.models.manual_entry import ManualEntry, ManualEntrySplit, Settlement
 from app.models.receipt import Receipt
 from app.models.user import User
-from app.schemas.common import GroupMemberOut
+from app.schemas.common import GroupMemberOut, SuggestedSettlement
 from app.schemas.groups import (
     GroupBalanceResponse,
     GroupCreateRequest,
@@ -31,7 +31,7 @@ from app.schemas.groups import (
     GroupProfilePictureRequest,
     GroupUpdateRequest,
 )
-from app.services.balances import compute_group_balances
+from app.services.balances import compute_group_balances, compute_suggested_settlements
 from app.services.gcs import GCSService, get_gcs_service
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -203,8 +203,6 @@ async def join_group_by_code(
     members = (
         await db.scalars(select(GroupMember).where(GroupMember.group_id == invitation.group_id))
     ).all()
-    if len(members) >= 2:
-        raise HTTPException(status_code=400, detail="Group already full")
     already_member = await db.scalar(
         select(GroupMember).where(
             GroupMember.group_id == invitation.group_id,
@@ -469,14 +467,6 @@ async def invite_member(
     user: User = Depends(get_current_user),
 ):
     await require_group_member(group_id, user, db)
-    member_count = len(
-        (
-            await db.scalars(select(GroupMember).where(GroupMember.group_id == group_id))
-        ).all()
-    )
-    if member_count >= 2:
-        raise HTTPException(status_code=400, detail="Group already has two members")
-
     normalized_email = payload.email.strip().lower()
     invited_user = await db.scalar(select(User).where(User.email == normalized_email))
     if not invited_user:
@@ -570,9 +560,6 @@ async def join_group(
         raise HTTPException(status_code=409, detail="Invitation already used")
     if invitation.expires_at <= datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Invitation has expired")
-    members = (await db.scalars(select(GroupMember).where(GroupMember.group_id == group_id))).all()
-    if len(members) >= 2:
-        raise HTTPException(status_code=400, detail="Group already full")
     db.add(GroupMember(group_id=group_id, user_id=user.id, invited_by=invitation.invited_by, role="member"))
     invitation.accepted_at = datetime.now(timezone.utc)
     await db.commit()
@@ -624,6 +611,35 @@ async def get_balances(
         is_settled=all(v == 0 for v in totals.values()),
         total_owed=Decimal(total_owed),
     )
+
+
+@router.get("/{group_id}/balances/suggested-settlements", response_model=list[SuggestedSettlement])
+async def suggested_settlements(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    totals = await compute_group_balances(db, group_id)
+    transfers = compute_suggested_settlements(totals)
+
+    # Resolve display names
+    members = (await db.scalars(select(GroupMember).where(GroupMember.group_id == group_id))).all()
+    name_map: dict[uuid.UUID, str] = {}
+    for m in members:
+        u = await db.get(User, m.user_id)
+        name_map[m.user_id] = u.display_name if u else "Unknown"
+
+    return [
+        SuggestedSettlement(
+            from_user_id=t["from_user_id"],
+            from_display_name=name_map.get(t["from_user_id"], "Unknown"),
+            to_user_id=t["to_user_id"],
+            to_display_name=name_map.get(t["to_user_id"], "Unknown"),
+            amount=t["amount"],
+        )
+        for t in transfers
+    ]
 
 
 @router.get("/{group_id}/history")

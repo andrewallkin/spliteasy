@@ -135,6 +135,14 @@ export type GroupHistoryReceiptData = {
   splits?: GroupHistoryEntrySplitLine[]
 }
 
+export type SuggestedSettlement = {
+  from_user_id: string
+  from_display_name: string
+  to_user_id: string
+  to_display_name: string
+  amount: string
+}
+
 export type GroupHistoryItem = {
   type: 'receipt' | 'entry' | 'settlement'
   id: string

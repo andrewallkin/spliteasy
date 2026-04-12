@@ -10,6 +10,7 @@ import type {
   OCRLineItem,
   Receipt,
   Settlement,
+  SuggestedSettlement,
 } from '@/types/models'
 
 export async function listGroups() {
@@ -75,6 +76,11 @@ export async function deleteGroup(groupId: string) {
 
 export async function getBalances(groupId: string) {
   const response = await api.get<GroupBalanceResponse>(`/groups/${groupId}/balances`)
+  return response.data
+}
+
+export async function getSuggestedSettlements(groupId: string) {
+  const response = await api.get<SuggestedSettlement[]>(`/groups/${groupId}/balances/suggested-settlements`)
   return response.data
 }
 
