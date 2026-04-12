@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -36,7 +36,10 @@ async def migrate_receipts(session: AsyncSession, gcs: GCSService, folder: str) 
     """Backfill image_gcs_path for receipts that still have image_data in the DB."""
     # Use raw SQL to access image_data which may have been removed from the ORM model
     result = await session.execute(
-        text("SELECT id, image_data FROM receipts WHERE image_gcs_path IS NULL AND image_data IS NOT NULL")
+        text(
+            "SELECT id, image_data FROM receipts "
+            "WHERE image_gcs_path IS NULL AND image_data IS NOT NULL"
+        )
     )
     rows = result.fetchall()
     total = len(rows)
@@ -142,7 +145,10 @@ async def main() -> None:
     settings = get_settings()
     gcs = GCSService()
     if not gcs.is_available():
-        logger.error("GCS service is not available — check GCP_SERVICE_ACCOUNT_CREDENTIALS and GCS_IMAGES_BUCKET_NAME")
+        logger.error(
+            "GCS service is not available — check GCP_SERVICE_ACCOUNT_CREDENTIALS "
+            "and GCS_IMAGES_BUCKET_NAME"
+        )
         sys.exit(1)
 
     engine = create_async_engine(settings.database_url, echo=False)

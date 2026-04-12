@@ -83,7 +83,10 @@ class GCSService:
             return data
         except Exception as e:
             logger.exception(
-                "GCS download failed: %s: %s", type(e).__name__, e, extra={"object_path": object_path}
+                "GCS download failed: %s: %s",
+                type(e).__name__,
+                e,
+                extra={"object_path": object_path},
             )
             return None
 
