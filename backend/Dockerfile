@@ -16,6 +16,7 @@ RUN uv sync --frozen --no-dev
 
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
+COPY scripts /app/scripts
 COPY run_migrations.sh /app/run_migrations.sh
 RUN chmod +x /app/run_migrations.sh
 

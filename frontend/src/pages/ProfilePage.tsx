@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import * as authApi from '@/api/auth'
 import * as usersApi from '@/api/users'
 import { joinGroupByCode } from '@/api/groups'
 import { Button } from '@/components/ui/Button'
@@ -148,7 +149,19 @@ export function ProfilePage() {
           disabled={uploadingPic}
         >
           {avatarSrc ? (
-            <img src={avatarSrc} alt="Profile" className="h-full w-full object-cover" />
+            <img
+                src={avatarSrc}
+                alt="Profile"
+                className="h-full w-full object-cover"
+                onError={async () => {
+                  try {
+                    const updated = await authApi.me()
+                    setUser(updated)
+                  } catch {
+                    // ignore — will show initials fallback
+                  }
+                }}
+              />
           ) : (
             <span className="text-xl font-bold text-pastel-purple-deep">{initial}</span>
           )}

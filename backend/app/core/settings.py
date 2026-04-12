@@ -1,6 +1,7 @@
 from functools import lru_cache
 from urllib.parse import quote_plus
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,23 @@ class Settings(BaseSettings):
     uploads_dir: str
     openai_api_key: str
     openai_model: str
+
+    gcp_service_account_credentials: str = ""
+    gcs_images_bucket_name: str = ""
+    receipts_image_folder: str = Field(
+        default="receipts",
+        validation_alias=AliasChoices("GCS_RECEIPTS_IMAGE_FOLDER", "RECEIPTS_IMAGE_FOLDER"),
+    )
+    group_profile_image_folder: str = Field(
+        default="group-profiles",
+        validation_alias=AliasChoices(
+            "GCS_GROUP_PROFILE_IMAGE_FOLDER", "GROUP_PROFILE_IMAGE_FOLDER"
+        ),
+    )
+    user_profile_image_folder: str = Field(
+        default="user-profiles",
+        validation_alias=AliasChoices("GCS_USER_PROFILE_IMAGE_FOLDER", "USER_PROFILE_IMAGE_FOLDER"),
+    )
 
     authorized_emails: str = ""
 

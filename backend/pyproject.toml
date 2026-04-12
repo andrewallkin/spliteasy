@@ -19,6 +19,7 @@ dependencies = [
   "python-magic",
   "python-multipart",
   "sqlalchemy",
+  "google-cloud-storage",
   "uvicorn[standard]",
 ]
 
