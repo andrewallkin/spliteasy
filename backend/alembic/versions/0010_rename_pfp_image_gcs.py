@@ -1,13 +1,13 @@
 """rename profile_picture to image_gcs_path on users and groups tables
 
-Revision ID: 0010_rename_profile_picture_to_image_gcs_path
+Revision ID: 0010_rename_pfp_image_gcs
 Revises: 0009_gcs_cleanup
 Create Date: 2026-04-12
 """
 
 from alembic import op
 
-revision = "0010_rename_profile_picture_to_image_gcs_path"
+revision = "0010_rename_pfp_image_gcs"
 down_revision = "0009_gcs_cleanup"
 branch_labels = None
 depends_on = None

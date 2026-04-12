@@ -8,7 +8,6 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
-    LargeBinary,
     Numeric,
     String,
     func,
@@ -36,9 +35,6 @@ class Receipt(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
     image_gcs_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    # Deprecated: kept as nullable for the backfill transition period. Remove after 0009_gcs_cleanup migration runs.
-    image_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
-    image_mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(255), nullable=True)
     merchant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     receipt_date: Mapped[str | None] = mapped_column(String(40), nullable=True)

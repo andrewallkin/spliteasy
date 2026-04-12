@@ -335,23 +335,14 @@ async def receipt_image(
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
 
-    # New path: fetch from GCS
-    if receipt.image_gcs_path:
-        image_bytes = gcs.download_image(receipt.image_gcs_path)
-        if image_bytes is None:
-            raise HTTPException(status_code=404, detail="Receipt image not found")
-        return Response(
-            content=image_bytes,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "private, max-age=86400"},
-        )
-
-    # Fallback: old rows not yet backfilled (remove after running 0009_gcs_cleanup migration)
-    if not receipt.image_data:
+    if not receipt.image_gcs_path:
+        raise HTTPException(status_code=404, detail="Receipt image not found")
+    image_bytes = gcs.download_image(receipt.image_gcs_path)
+    if image_bytes is None:
         raise HTTPException(status_code=404, detail="Receipt image not found")
     return Response(
-        content=receipt.image_data,
-        media_type=receipt.image_mime_type or "image/jpeg",
+        content=image_bytes,
+        media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=86400"},
     )
 
