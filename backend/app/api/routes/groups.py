@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_group_member
+from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.enums import GroupRole
 from app.models.group import Group, GroupBalance, GroupInvitation
@@ -31,9 +32,27 @@ from app.schemas.groups import (
     GroupUpdateRequest,
 )
 from app.services.balances import compute_group_balances
+from app.services.gcs import GCSService, get_gcs_service
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_GROUP_PICTURE_BYTES = 10 * 1024 * 1024
+
+
+def _make_group_out(group: Group, gcs: GCSService) -> GroupOut:
+    url = gcs.generate_signed_url(group.image_gcs_path) if group.image_gcs_path else None
+    return GroupOut.model_validate(group).model_copy(update={"profile_picture": url})
+
+
+def _make_member_out(member: GroupMember, user: User | None, gcs: GCSService) -> GroupMemberOut:
+    pic_path = user.image_gcs_path if user else None
+    url = gcs.generate_signed_url(pic_path) if pic_path else None
+    return GroupMemberOut(
+        user_id=member.user_id,
+        display_name=user.display_name if user else "unknown",
+        profile_picture=url,
+        role=member.role.value if hasattr(member.role, "value") else str(member.role),
+        joined_at=member.joined_at,
+    )
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -133,6 +152,7 @@ async def create_group(
     payload: GroupCreateRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     group = Group(name=_normalize_group_name(payload.name), created_by=user.id)
     db.add(group)
@@ -140,11 +160,15 @@ async def create_group(
     db.add(GroupMember(group_id=group.id, user_id=user.id, role="owner"))
     await db.commit()
     await db.refresh(group)
-    return GroupOut.model_validate(group)
+    return _make_group_out(group, gcs)
 
 
 @router.get("", response_model=list[GroupOut])
-async def list_groups(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_groups(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
+):
     groups = (
         await db.scalars(
             select(Group)
@@ -153,7 +177,7 @@ async def list_groups(db: AsyncSession = Depends(get_db), user: User = Depends(g
             .order_by(Group.created_at.desc())
         )
     ).all()
-    return [GroupOut.model_validate(g) for g in groups]
+    return [_make_group_out(g, gcs) for g in groups]
 
 
 @router.post("/join-by-code")
@@ -322,12 +346,13 @@ async def get_group(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     await require_group_member(group_id, user, db)
     group = await db.get(Group, group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    return GroupOut.model_validate(group)
+    return _make_group_out(group, gcs)
 
 
 @router.patch("/{group_id}", response_model=GroupOut)
@@ -336,6 +361,7 @@ async def update_group(
     payload: GroupUpdateRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     membership = await require_group_member(group_id, user, db)
     if not _is_group_owner(membership.role):
@@ -348,7 +374,7 @@ async def update_group(
     group.name = _normalize_group_name(payload.name)
     await db.commit()
     await db.refresh(group)
-    return GroupOut.model_validate(group)
+    return _make_group_out(group, gcs)
 
 
 @router.patch("/{group_id}/profile-picture", response_model=GroupOut)
@@ -357,6 +383,7 @@ async def update_group_profile_picture(
     payload: GroupProfilePictureRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     await require_group_member(group_id, user, db)
     group = await db.get(Group, group_id)
@@ -373,13 +400,24 @@ async def update_group_profile_picture(
             raise HTTPException(status_code=400, detail="Profile picture must be a valid base64 image") from exc
         if len(decoded) > _MAX_GROUP_PICTURE_BYTES:
             raise HTTPException(status_code=400, detail="Profile picture must be under 10 MB")
-        group.profile_picture = payload.profile_picture
+        # Delete old GCS object before uploading the new one
+        if group.image_gcs_path:
+            gcs.delete_image(group.image_gcs_path)
+        settings = get_settings()
+        gcs_path = gcs.upload_image(
+            settings.group_profile_image_folder, f"{group_id}.jpg", decoded, "image/jpeg"
+        )
+        if gcs_path is None:
+            raise HTTPException(status_code=500, detail="Failed to upload group profile picture")
+        group.image_gcs_path = gcs_path
     else:
-        group.profile_picture = None
+        if group.image_gcs_path:
+            gcs.delete_image(group.image_gcs_path)
+        group.image_gcs_path = None
 
     await db.commit()
     await db.refresh(group)
-    return GroupOut.model_validate(group)
+    return _make_group_out(group, gcs)
 
 
 @router.delete("/{group_id}", status_code=204)
@@ -406,6 +444,7 @@ async def list_members(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     await require_group_member(group_id, user, db)
     rows = (
@@ -418,13 +457,7 @@ async def list_members(
     result = []
     for m in rows:
         u = await db.get(User, m.user_id)
-        result.append(GroupMemberOut(
-            user_id=m.user_id,
-            display_name=u.display_name if u else "unknown",
-            profile_picture=u.profile_picture if u else None,
-            role=m.role.value if hasattr(m.role, "value") else str(m.role),
-            joined_at=m.joined_at,
-        ))
+        result.append(_make_member_out(m, u, gcs))
     return result
 
 

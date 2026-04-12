@@ -13,9 +13,15 @@ from app.models.group import RefreshToken
 from app.models.user import User
 from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, TokenResponse
 from app.schemas.common import UserOut
+from app.services.gcs import GCSService, get_gcs_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
+
+
+def _make_user_out(user: User, gcs: GCSService) -> UserOut:
+    url = gcs.generate_signed_url(user.image_gcs_path) if user.image_gcs_path else None
+    return UserOut.model_validate(user).model_copy(update={"profile_picture": url})
 
 EMAIL_NOT_ALLOWED_DETAIL = "This email is not allowed to use this application."
 
@@ -40,7 +46,12 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 
 
 @router.post("/register", response_model=AuthResponse, status_code=201)
-async def register(payload: RegisterRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def register(
+    payload: RegisterRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    gcs: GCSService = Depends(get_gcs_service),
+):
     normalized_email = payload.email.strip().lower()
     _require_allowed_email(normalized_email)
     existing_email = await db.scalar(select(User).where(User.email == normalized_email))
@@ -71,11 +82,16 @@ async def register(payload: RegisterRequest, response: Response, db: AsyncSessio
     )
     await db.commit()
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=UserOut.model_validate(user))
+    return AuthResponse(access_token=access_token, user=_make_user_out(user, gcs))
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(payload: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(
+    payload: LoginRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    gcs: GCSService = Depends(get_gcs_service),
+):
     normalized_email = payload.email.strip().lower()
     _require_allowed_email(normalized_email)
     user = await db.scalar(select(User).where(User.email == normalized_email))
@@ -100,7 +116,7 @@ async def login(payload: LoginRequest, response: Response, db: AsyncSession = De
     )
     await db.commit()
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=UserOut.model_validate(user))
+    return AuthResponse(access_token=access_token, user=_make_user_out(user, gcs))
 
 
 @router.post("/refresh", response_model=TokenResponse)

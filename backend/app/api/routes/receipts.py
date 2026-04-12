@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_group_member
+from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.enums import ShareType
 from app.models.group_member import GroupMember
@@ -21,6 +22,7 @@ from app.schemas.receipts import (
     ReceiptPatchRequest,
     ReceiptUpdateItemsRequest,
 )
+from app.services.gcs import GCSService, get_gcs_service
 from app.services.ocr import extract_receipt_items, image_bytes_to_jpeg_bytes
 
 router = APIRouter(tags=["receipts"])
@@ -43,6 +45,7 @@ async def upload_receipt(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     await require_group_member(group_id, user, db)
     if not files:
@@ -65,12 +68,18 @@ async def upload_receipt(
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     receipt_id = uuid.uuid4()
+    settings = get_settings()
+    gcs_path = gcs.upload_image(
+        settings.receipts_image_folder, f"{receipt_id}.jpg", first_jpeg_body, "image/jpeg"
+    )
+    if gcs_path is None:
+        raise HTTPException(status_code=500, detail="Failed to upload receipt image")
+
     receipt = Receipt(
         id=receipt_id,
         group_id=group_id,
         uploaded_by=user.id,
-        image_data=first_jpeg_body,
-        image_mime_type="image/jpeg",
+        image_gcs_path=gcs_path,
         status="pending_ocr",
     )
     db.add(receipt)
@@ -319,16 +328,30 @@ async def receipt_image(
     receipt_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
+
+    # New path: fetch from GCS
+    if receipt.image_gcs_path:
+        image_bytes = gcs.download_image(receipt.image_gcs_path)
+        if image_bytes is None:
+            raise HTTPException(status_code=404, detail="Receipt image not found")
+        return Response(
+            content=image_bytes,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    # Fallback: old rows not yet backfilled (remove after running 0009_gcs_cleanup migration)
     if not receipt.image_data:
         raise HTTPException(status_code=404, detail="Receipt image not found")
     return Response(
         content=receipt.image_data,
-        media_type=receipt.image_mime_type,
+        media_type=receipt.image_mime_type or "image/jpeg",
         headers={"Cache-Control": "private, max-age=86400"},
     )
 

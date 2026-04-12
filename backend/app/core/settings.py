@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     openai_api_key: str
     openai_model: str
 
+    gcp_service_account_credentials: str = ""
+    gcs_images_bucket_name: str = ""
+    receipts_image_folder: str = "receipts"
+    group_profile_image_folder: str = "group-profiles"
+    user_profile_image_folder: str = "user-profiles"
+
     authorized_emails: str = ""
 
     @property

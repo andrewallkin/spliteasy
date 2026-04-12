@@ -45,6 +45,11 @@ jobs:
           ENV_BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
           ENV_FRONTEND_PORT: ${{ secrets.FRONTEND_PORT }}
           ENV_DOMAIN: ${{ secrets.DOMAIN }}
+          ENV_GCS_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCS_SERVICE_ACCOUNT_CREDENTIALS }}
+          ENV_GCS_IMAGES_BUCKET_NAME: ${{ secrets.GCS_IMAGES_BUCKET_NAME }}
+          ENV_GCS_RECEIPTS_IMAGE_FOLDER: ${{ secrets.GCS_RECEIPTS_IMAGE_FOLDER }}
+          ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_GROUP_PROFILE_IMAGE_FOLDER }}
+          ENV_GCS_USER_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_USER_PROFILE_IMAGE_FOLDER }}
         run: |
           ssh -t -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no -o ServerAliveInterval=50 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} <<EOF
           set -euo pipefail
@@ -106,6 +111,12 @@ jobs:
           BACKEND_PORT=${ENV_BACKEND_PORT}
           FRONTEND_PORT=${ENV_FRONTEND_PORT}
           DOMAIN=${ENV_DOMAIN}
+
+          GCS_SERVICE_ACCOUNT_CREDENTIALS=${ENV_GCS_SERVICE_ACCOUNT_CREDENTIALS}
+          GCS_IMAGES_BUCKET_NAME=${ENV_GCS_IMAGES_BUCKET_NAME}
+          GCS_RECEIPTS_IMAGE_FOLDER=${ENV_GCS_RECEIPTS_IMAGE_FOLDER}
+          GCS_GROUP_PROFILE_IMAGE_FOLDER=${ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER}
+          GCS_USER_PROFILE_IMAGE_FOLDER=${ENV_GCS_USER_PROFILE_IMAGE_FOLDER}
           EOF_ENV
           echo "Environment configured"
           echo "::endgroup::"
