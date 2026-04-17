@@ -39,6 +39,22 @@ def _effective_amount(item_in) -> Decimal:
     return Decimal(str(item_in.amount))
 
 
+def _positive_ocr_items(items):
+    """Yield (sort_order, item, final_line_total) for OCR items with a positive final_line_total.
+
+    Free / complimentary / zero-priced lines are excluded at the OCR prompt stage, but this
+    filter enforces the same rule defensively so the DB's `amount > 0` check can never be hit.
+    sort_order is re-indexed across the surviving items so the persisted sequence is contiguous.
+    """
+    sort_index = 0
+    for item in items:
+        final_total = Decimal(str(item.final_line_total))
+        if final_total <= 0:
+            continue
+        yield sort_index, item, final_total
+        sort_index += 1
+
+
 @router.post("/groups/{group_id}/receipts", response_model=ReceiptOut, status_code=201)
 async def upload_receipt(
     group_id: uuid.UUID,
@@ -96,8 +112,7 @@ async def upload_receipt(
             receipt.total_amount = Decimal(str(parsed.total_amount))
         receipt.ocr_raw_response = parsed.model_dump(mode="json")
         receipt.status = "pending_review"
-        for index, item in enumerate(parsed.items):
-            final_total = Decimal(str(item.final_line_total))
+        for sort_index, item, final_total in _positive_ocr_items(parsed.items):
             db.add(
                 LineItem(
                     receipt_id=receipt.id,
@@ -105,7 +120,7 @@ async def upload_receipt(
                     description=item.description,
                     amount=final_total,
                     uncertain=item.confidence < 0.85,
-                    sort_order=index,
+                    sort_order=sort_index,
                     quantity=item.quantity,
                     price_per_unit=Decimal(str(item.price_per_unit)),
                     line_subtotal=Decimal(str(item.line_subtotal)),
