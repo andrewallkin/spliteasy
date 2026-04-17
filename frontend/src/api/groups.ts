@@ -159,9 +159,10 @@ export async function getReceiptItems(receiptId: string) {
   return response.data
 }
 
-export async function getReceiptImageBlob(receiptId: string) {
+export async function getReceiptImageBlob(receiptId: string, index = 0) {
   const response = await api.get<Blob>(`/receipts/${receiptId}/image`, {
     responseType: 'blob',
+    params: { index },
   })
   return response.data
 }

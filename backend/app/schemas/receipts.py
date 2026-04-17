@@ -45,6 +45,7 @@ class ReceiptOut(BaseModel):
     paid_by_user_id: uuid.UUID | None = None
     status: str
     created_at: datetime
+    image_count: int = 0
 
     class Config:
         from_attributes = True
