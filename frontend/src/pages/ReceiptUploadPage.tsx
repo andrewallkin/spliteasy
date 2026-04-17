@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { deleteReceipt, getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
@@ -34,6 +34,8 @@ type DraftItem = {
   customAssignees: string[]
   isManual: boolean
 }
+
+const RECEIPT_IMAGE_ACCEPT = 'image/*,.heic,.heif'
 
 const stepLabels: Record<Step, string> = {
   capture: 'Capture Receipt',
@@ -95,6 +97,8 @@ export function ReceiptUploadPage() {
   const [paidBy, setPaidBy] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [nextKey, setNextKey] = useState(0)
+  const libraryInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
 
   const isMultiUser = members.length > 2
   const stepIndex = ['capture', 'processing', 'confirm', 'summary'].indexOf(step) + 1
@@ -394,6 +398,13 @@ export function ReceiptUploadPage() {
     }
   }
 
+  function appendFilesFromInput(event: ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files ?? [])
+    if (incoming.length === 0) return
+    setFiles((prev) => [...prev, ...incoming])
+    event.target.value = ''
+  }
+
   const currency = receipt?.currency ?? DEFAULT_CURRENCY
 
   return (
@@ -415,26 +426,63 @@ export function ReceiptUploadPage() {
       {/* Capture */}
       {step === 'capture' && (
         <Card className="space-y-4">
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-ink-faint/40 bg-surface-secondary p-8 transition hover:border-pastel-purple/50 hover:bg-pastel-lavender/10">
+          <p className="text-xs text-ink-tertiary">
+            Multi-page receipts: add several photos from your library, or take photos one at a time (tap Take photo again to add more).
+          </p>
+          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-ink-faint/40 bg-surface-secondary p-6 transition hover:border-pastel-purple/50 hover:bg-pastel-lavender/10">
             <svg className="h-10 w-10 text-ink-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
             </svg>
-            <span className="text-sm font-medium text-ink-secondary">
-              {files.length === 0
-                ? 'Tap to select or take a photo (multiple images supported)'
-                : files.length === 1
-                  ? files[0].name
-                  : `${files.length} images selected`}
-            </span>
-            <input
-              type="file"
-              accept="image/*,.heic,.heif"
-              multiple
-              className="hidden"
-              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            />
-          </label>
+            <div className="flex w-full flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => libraryInputRef.current?.click()}
+              >
+                Choose photos
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                Take photo
+              </Button>
+            </div>
+          </div>
+          {files.length > 0 && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-sm font-medium text-ink-secondary">
+                {files.length === 1 ? files[0].name : `${files.length} images selected`}
+              </span>
+              <button
+                type="button"
+                className="shrink-0 text-sm font-semibold text-pastel-purple-deep underline decoration-pastel-purple/40 underline-offset-2 transition hover:text-pastel-purple"
+                onClick={() => setFiles([])}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <input
+            ref={libraryInputRef}
+            type="file"
+            accept={RECEIPT_IMAGE_ACCEPT}
+            multiple
+            className="hidden"
+            onChange={appendFilesFromInput}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept={RECEIPT_IMAGE_ACCEPT}
+            capture="environment"
+            className="hidden"
+            onChange={appendFilesFromInput}
+          />
           <Button onClick={onProcessReceipt} disabled={files.length === 0} className="w-full">
             Process Receipt
           </Button>

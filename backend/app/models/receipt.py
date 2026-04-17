@@ -35,6 +35,8 @@ class Receipt(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
     )
     image_gcs_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    image_gcs_paths: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
     nickname: Mapped[str | None] = mapped_column(String(255), nullable=True)
     merchant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     receipt_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -50,3 +52,16 @@ class Receipt(Base):
     )
     version: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    @property
+    def image_count(self) -> int:
+        return len(effective_receipt_image_paths(self))
+
+
+def effective_receipt_image_paths(receipt: Receipt) -> list[str]:
+    """Return ordered GCS paths for receipt images (legacy rows use image_gcs_path only)."""
+    if receipt.image_gcs_paths:
+        return list(receipt.image_gcs_paths)
+    if receipt.image_gcs_path:
+        return [receipt.image_gcs_path]
+    return []

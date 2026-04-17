@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
 import {
   deleteEntry,
@@ -88,6 +88,235 @@ function splitTypeCaption(splitType: string | null | undefined) {
   return 'Split'
 }
 
+function useReceiptImageBlobs(receiptId: string, imageCount: number, enabled: boolean) {
+  const [blobUrls, setBlobUrls] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!enabled || !receiptId || imageCount < 1) {
+      let resetCancelled = false
+      void Promise.resolve().then(() => {
+        if (!resetCancelled) {
+          setBlobUrls([])
+          setIsLoading(false)
+        }
+      })
+      return () => {
+        resetCancelled = true
+      }
+    }
+
+    let cancelled = false
+    const created: string[] = []
+
+    void Promise.resolve().then(() => {
+      if (!cancelled) setIsLoading(true)
+    })
+
+    void Promise.all(
+      Array.from({ length: imageCount }, (_, i) =>
+        getReceiptImageBlob(receiptId, i).then((blob) => {
+          if (cancelled) return null
+          const u = URL.createObjectURL(blob)
+          created.push(u)
+          return u
+        }),
+      ),
+    )
+      .then((urls) => {
+        if (cancelled) {
+          created.forEach((u) => URL.revokeObjectURL(u))
+          return
+        }
+        const filtered = urls.filter((u): u is string => u !== null)
+        setBlobUrls(filtered)
+      })
+      .catch(() => {
+        if (cancelled) return
+        created.forEach((u) => URL.revokeObjectURL(u))
+        setBlobUrls([])
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+      created.forEach((u) => URL.revokeObjectURL(u))
+    }
+  }, [receiptId, imageCount, enabled])
+
+  return { blobUrls, isLoading }
+}
+
+type ReceiptImageCarouselHandle = {
+  goPrev: () => void
+  goNext: () => void
+}
+
+const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
+  receiptId: string
+  imageCount: number
+  variant: 'thumb' | 'modal'
+  enabled?: boolean
+}>(function ReceiptImageCarousel({
+  receiptId,
+  imageCount,
+  variant,
+  enabled = true,
+}, ref) {
+  const count = Math.max(1, imageCount)
+  const { blobUrls, isLoading } = useReceiptImageBlobs(receiptId, count, enabled && Boolean(receiptId))
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const w = el.clientWidth
+    const idx = Math.round(el.scrollLeft / Math.max(w, 1))
+    setCurrentIndex(Math.min(Math.max(0, idx), count - 1))
+  }, [count])
+
+  const jumpToIndex = useCallback((nextIndex: number) => {
+    const el = scrollRef.current
+    if (!el) return
+    const clamped = Math.min(Math.max(0, nextIndex), count - 1)
+    el.scrollTo({
+      left: clamped * Math.max(el.clientWidth, 1),
+      behavior: 'auto',
+    })
+    setCurrentIndex(clamped)
+  }, [count])
+
+  useImperativeHandle(ref, () => ({
+    goPrev: () => jumpToIndex(currentIndex - 1),
+    goNext: () => jumpToIndex(currentIndex + 1),
+  }), [currentIndex, jumpToIndex])
+
+  useEffect(() => {
+    setCurrentIndex(0)
+    const el = scrollRef.current
+    if (el) {
+      el.scrollTo({
+        left: 0,
+        behavior: 'auto',
+      })
+    }
+  }, [receiptId, count, variant])
+
+  const thumbBox = 'relative h-16 w-16 overflow-hidden rounded-xl bg-surface-secondary'
+  const caption =
+    count > 1 ? (
+      <div className="pointer-events-none absolute bottom-1 left-1/2 z-[1] -translate-x-1/2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+        Image {currentIndex + 1} of {count}
+      </div>
+    ) : null
+  const canGoPrev = currentIndex > 0
+  const canGoNext = currentIndex < count - 1
+
+  if (isLoading || blobUrls.length === 0) {
+    return (
+      <div
+        className={
+          variant === 'thumb'
+            ? `${thumbBox} flex items-center justify-center border border-surface-tertiary px-1 text-center text-[10px] font-semibold text-ink-tertiary`
+            : 'flex h-[60vh] w-full items-center justify-center text-sm text-white'
+        }
+      >
+        {isLoading ? 'Loading...' : 'No image'}
+      </div>
+    )
+  }
+
+  if (count <= 1 || blobUrls.length === 1) {
+    return (
+      <div
+        className={
+          variant === 'thumb'
+            ? `${thumbBox} group flex items-center justify-center border border-surface-tertiary`
+            : 'relative max-h-[92vh] w-full'
+        }
+      >
+        <img
+          src={blobUrls[0]}
+          alt="Receipt"
+          className={
+            variant === 'thumb'
+              ? 'max-h-full max-w-full min-h-0 min-w-0 object-contain object-top transition-transform duration-200 group-hover:scale-105'
+              : 'max-h-[92vh] w-full object-contain'
+          }
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className={variant === 'thumb' ? `group ${thumbBox} border border-surface-tertiary` : 'relative w-full'}>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className={
+          variant === 'thumb'
+            ? 'flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+            : 'flex max-h-[92vh] w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+        }
+        style={variant === 'modal' ? { touchAction: 'pan-x' } : undefined}
+      >
+        {blobUrls.map((url, i) => (
+          <div
+            key={i}
+            className={
+              variant === 'thumb'
+                ? 'flex h-16 min-w-16 shrink-0 snap-center items-center justify-center'
+                : 'flex min-h-[60vh] min-w-full shrink-0 snap-center items-center justify-center'
+            }
+          >
+            <img
+              src={url}
+              alt=""
+              className={
+                variant === 'thumb'
+                  ? 'max-h-full max-w-full min-h-0 min-w-0 object-contain object-top transition-transform duration-200 group-hover:scale-105'
+                  : 'max-h-[92vh] w-full max-w-full object-contain'
+              }
+            />
+          </div>
+        ))}
+      </div>
+      {variant === 'modal' && (
+        <>
+          <button
+            type="button"
+            onClick={() => jumpToIndex(currentIndex - 1)}
+            disabled={!canGoPrev}
+            aria-label="Previous receipt image"
+            className="absolute left-2 top-1/2 z-[2] -translate-y-1/2 rounded-full bg-black/60 p-3 text-white transition hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-35 sm:left-3 sm:p-2.5"
+          >
+            <svg className="h-5 w-5 sm:h-4 sm:w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M12.5 4.5L7 10l5.5 5.5" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => jumpToIndex(currentIndex + 1)}
+            disabled={!canGoNext}
+            aria-label="Next receipt image"
+            className="absolute right-2 top-1/2 z-[2] -translate-y-1/2 rounded-full bg-black/60 p-3 text-white transition hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-35 sm:right-3 sm:p-2.5"
+          >
+            <svg className="h-5 w-5 sm:h-4 sm:w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M7.5 4.5L13 10l-5.5 5.5" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </>
+      )}
+      {variant === 'modal' && caption}
+    </div>
+  )
+})
+
+ReceiptImageCarousel.displayName = 'ReceiptImageCarousel'
+
 export function HistoryCard({
   item,
   showGroupName,
@@ -99,7 +328,7 @@ export function HistoryCard({
   showGroupName: boolean
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
-  onReceiptImageClick: (receiptId: string) => void
+  onReceiptImageClick: (receiptId: string, imageCount: number) => void
 }) {
   const badge = typeBadge[item.type] ?? typeBadge.entry
   const data = item.data as Record<string, string | null | undefined>
@@ -108,7 +337,7 @@ export function HistoryCard({
   const isEntry = item.type === 'entry'
   const isReceipt = item.type === 'receipt'
   const isClickable = isEntry || isReceipt
-  const { imageUrl: receiptImageUrl, isLoading: isReceiptImageLoading } = useReceiptImageUrl(item.id, isReceipt)
+  const receiptImageCount = receiptData ? Math.max(1, receiptData.image_count ?? 1) : 1
 
   return (
     <Card
@@ -182,23 +411,18 @@ export function HistoryCard({
             type="button"
             onClick={(event) => {
               event.stopPropagation()
-              onReceiptImageClick(item.id)
+              onReceiptImageClick(item.id, receiptImageCount)
             }}
             onKeyDown={(event) => event.stopPropagation()}
-            className="group mt-0.5 h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-surface-tertiary bg-surface-secondary"
+            className="mt-0.5 shrink-0 touch-pan-x text-left"
             aria-label="Open receipt image"
           >
-            {receiptImageUrl ? (
-              <img
-                src={receiptImageUrl}
-                alt="Receipt thumbnail"
-                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] font-semibold text-ink-tertiary">
-                {isReceiptImageLoading ? 'Loading...' : 'No image'}
-              </div>
-            )}
+            <ReceiptImageCarousel
+              receiptId={item.id}
+              imageCount={receiptImageCount}
+              variant="thumb"
+              enabled={isReceipt}
+            />
           </button>
           <div className="min-w-0 flex-1 space-y-1.5">
             <p className="font-semibold text-ink">
@@ -276,75 +500,41 @@ export function HistoryCard({
   )
 }
 
-function useReceiptImageUrl(receiptId: string, enabled = true) {
-  const [result, setResult] = useState<{ receiptId: string; imageUrl: string | null } | null>(null)
-
-  useEffect(() => {
-    if (!enabled || !receiptId) return
-
-    let cancelled = false
-
-    void getReceiptImageBlob(receiptId)
-      .then((blob) => {
-        if (cancelled) return
-        const nextUrl = URL.createObjectURL(blob)
-        setResult((previous) => {
-          if (previous?.imageUrl) {
-            URL.revokeObjectURL(previous.imageUrl)
-          }
-          return { receiptId, imageUrl: nextUrl }
-        })
-      })
-      .catch(() => {
-        if (cancelled) return
-        setResult((previous) => {
-          if (previous?.imageUrl) {
-            URL.revokeObjectURL(previous.imageUrl)
-          }
-          return { receiptId, imageUrl: null }
-        })
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [receiptId, enabled])
-
-  useEffect(() => {
-    return () => {
-      if (result?.imageUrl) {
-        URL.revokeObjectURL(result.imageUrl)
-      }
-    }
-  }, [result])
-
-  const isLoading = enabled && Boolean(receiptId) && result?.receiptId !== receiptId
-  const imageUrl = result?.receiptId === receiptId ? result.imageUrl : null
-
-  return { imageUrl, isLoading }
-}
-
 export function ReceiptImageModal({
   isOpen,
   receiptId,
+  imageCount,
   onClose,
 }: {
   isOpen: boolean
   receiptId: string
+  imageCount: number
   onClose: () => void
 }) {
-  const { imageUrl, isLoading } = useReceiptImageUrl(receiptId, isOpen && Boolean(receiptId))
+  const count = Math.max(1, imageCount)
+  const carouselRef = useRef<ReceiptImageCarouselHandle | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         onClose()
+        return
+      }
+      if (count <= 1) {
+        return
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        carouselRef.current?.goPrev()
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        carouselRef.current?.goNext()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, count])
 
   if (!isOpen) return null
 
@@ -361,13 +551,13 @@ export function ReceiptImageModal({
         >
           Close
         </button>
-        {imageUrl ? (
-          <img src={imageUrl} alt="Receipt" className="max-h-[92vh] w-full object-contain" />
-        ) : (
-          <div className="flex h-[60vh] items-center justify-center text-sm text-white">
-            {isLoading ? 'Loading image...' : 'Image unavailable'}
-          </div>
-        )}
+        <ReceiptImageCarousel
+          ref={carouselRef}
+          receiptId={receiptId}
+          imageCount={count}
+          variant="modal"
+          enabled={isOpen && Boolean(receiptId)}
+        />
       </div>
     </div>
   )
@@ -1423,7 +1613,7 @@ type GroupScopedHistoryProps = {
 export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps) {
   const [filter, setFilter] = useState<(typeof historyFilters)[number]>('all')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
-  const [imageModalReceiptId, setImageModalReceiptId] = useState('')
+  const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -1500,7 +1690,9 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
               showGroupName={false}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={setImageModalReceiptId}
+              onReceiptImageClick={(receiptId, imageCount) =>
+                setImageModal({ receiptId, imageCount })
+              }
             />
           ))}
         </div>
@@ -1568,9 +1760,10 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         onDelete={receiptModal.onDelete}
       />
       <ReceiptImageModal
-        isOpen={Boolean(imageModalReceiptId)}
-        receiptId={imageModalReceiptId}
-        onClose={() => setImageModalReceiptId('')}
+        isOpen={imageModal !== null}
+        receiptId={imageModal?.receiptId ?? ''}
+        imageCount={imageModal?.imageCount ?? 1}
+        onClose={() => setImageModal(null)}
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}

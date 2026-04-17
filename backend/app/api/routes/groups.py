@@ -290,6 +290,7 @@ async def global_history(
                         receipt.paid_by_user_id or receipt.uploaded_by,
                         "unknown",
                     ),
+                    "image_count": receipt.image_count,
                     "splits": receipt_splits_payload.get(receipt.id, []),
                 },
             } for receipt in receipts]
@@ -683,6 +684,7 @@ async def history(
                     "uploaded_by": user_map.get(r.uploaded_by, "unknown"),
                     "paid_by_user_id": str(r.paid_by_user_id) if r.paid_by_user_id else None,
                     "paid_by": user_map.get(r.paid_by_user_id or r.uploaded_by, "unknown"),
+                    "image_count": r.image_count,
                     "splits": receipt_splits_payload.get(r.id, []),
                 },
             } for r in receipts]

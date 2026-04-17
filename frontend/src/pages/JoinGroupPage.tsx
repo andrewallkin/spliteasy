@@ -19,8 +19,10 @@ export function JoinGroupPage() {
 
   useEffect(() => {
     if (!invitationId) {
-      setStatus('error')
-      setErrorMsg('No invitation code found in the link.')
+      void Promise.resolve().then(() => {
+        setStatus('error')
+        setErrorMsg('No invitation code found in the link.')
+      })
     }
   }, [invitationId])
 

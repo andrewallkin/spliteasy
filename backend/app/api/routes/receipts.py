@@ -2,7 +2,7 @@ import base64
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.models.enums import ShareType
 from app.models.group_member import GroupMember
 from app.models.line_item import ItemAssignment, LineItem
-from app.models.receipt import Receipt
+from app.models.receipt import Receipt, effective_receipt_image_paths
 from app.models.user import User
 from app.schemas.receipts import (
     OCRLineItemOut,
@@ -52,7 +52,7 @@ async def upload_receipt(
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     images_base64: list[str] = []
-    first_jpeg_body: bytes | None = None
+    jpeg_bodies: list[bytes] = []
 
     for upload in files:
         body = await upload.read()
@@ -60,26 +60,29 @@ async def upload_receipt(
             raise HTTPException(status_code=413, detail="File too large (max 10 MB per file)")
         content_type = upload.content_type or ""
         jpeg_body = image_bytes_to_jpeg_bytes(body, content_type)
+        jpeg_bodies.append(jpeg_body)
         images_base64.append(base64.b64encode(jpeg_body).decode())
-        if first_jpeg_body is None:
-            first_jpeg_body = jpeg_body
 
-    if first_jpeg_body is None:
+    if not jpeg_bodies:
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     receipt_id = uuid.uuid4()
     settings = get_settings()
-    gcs_path = gcs.upload_image(
-        settings.receipts_image_folder, f"{receipt_id}.jpg", first_jpeg_body, "image/jpeg"
-    )
-    if gcs_path is None:
-        raise HTTPException(status_code=500, detail="Failed to upload receipt image")
+    gcs_paths: list[str] = []
+    for i, jpeg_body in enumerate(jpeg_bodies):
+        gcs_path = gcs.upload_image(
+            settings.receipts_image_folder, f"{receipt_id}_{i}.jpg", jpeg_body, "image/jpeg"
+        )
+        if gcs_path is None:
+            raise HTTPException(status_code=500, detail="Failed to upload receipt image")
+        gcs_paths.append(gcs_path)
 
     receipt = Receipt(
         id=receipt_id,
         group_id=group_id,
         uploaded_by=user.id,
-        image_gcs_path=gcs_path,
+        image_gcs_path=gcs_paths[0],
+        image_gcs_paths=gcs_paths,
         status="pending_ocr",
     )
     db.add(receipt)
@@ -322,11 +325,14 @@ async def delete_receipt(
     receipt_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
+    for path in effective_receipt_image_paths(receipt):
+        gcs.delete_image(path)
     await db.delete(receipt)
     await db.commit()
 
@@ -334,6 +340,7 @@ async def delete_receipt(
 @router.get("/receipts/{receipt_id}/image")
 async def receipt_image(
     receipt_id: uuid.UUID,
+    index: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     gcs: GCSService = Depends(get_gcs_service),
@@ -343,9 +350,10 @@ async def receipt_image(
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
 
-    if not receipt.image_gcs_path:
+    paths = effective_receipt_image_paths(receipt)
+    if not paths or index >= len(paths):
         raise HTTPException(status_code=404, detail="Receipt image not found")
-    image_bytes = gcs.download_image(receipt.image_gcs_path)
+    image_bytes = gcs.download_image(paths[index])
     if image_bytes is None:
         raise HTTPException(status_code=404, detail="Receipt image not found")
     return Response(

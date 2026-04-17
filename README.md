@@ -304,7 +304,7 @@ Router prefix: **`/groups/{group_id}`**.
 | GET | `/receipts/{receipt_id}/items` | Line items for editing. |
 | PUT | `/receipts/{receipt_id}/items` | Replace/update line items from client. |
 | POST | `/receipts/{receipt_id}/assign` | Assign shares; moves toward `assigned` when valid. |
-| GET | `/receipts/{receipt_id}/image` | Fetch receipt image bytes. |
+| GET | `/receipts/{receipt_id}/image` | Fetch receipt image bytes (JPEG). Query `index` (default `0`) selects the page for multi-image receipts. |
 
 ### System
 

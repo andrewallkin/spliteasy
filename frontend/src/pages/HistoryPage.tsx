@@ -37,7 +37,7 @@ function GlobalHistoryPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
-  const [imageModalReceiptId, setImageModalReceiptId] = useState('')
+  const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -146,7 +146,9 @@ function GlobalHistoryPage() {
               showGroupName
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={setImageModalReceiptId}
+              onReceiptImageClick={(receiptId, imageCount) =>
+                setImageModal({ receiptId, imageCount })
+              }
             />
           ))}
         </div>
@@ -214,9 +216,10 @@ function GlobalHistoryPage() {
         onDelete={receiptModal.onDelete}
       />
       <ReceiptImageModal
-        isOpen={Boolean(imageModalReceiptId)}
-        receiptId={imageModalReceiptId}
-        onClose={() => setImageModalReceiptId('')}
+        isOpen={imageModal !== null}
+        receiptId={imageModal?.receiptId ?? ''}
+        imageCount={imageModal?.imageCount ?? 1}
+        onClose={() => setImageModal(null)}
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}
