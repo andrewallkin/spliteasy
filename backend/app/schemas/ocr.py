@@ -15,6 +15,7 @@ Your goal is to provide a clean JSON where EVERY numeric field is populated (no 
 3. LINE TOTALS: 'final_line_total' MUST equal ('line_subtotal' minus 'line_discount').
 4. MATH CONSISTENCY: Ensure 'line_subtotal' equals ('price_per_unit' * 'quantity').
 5. MULTIPLE IMAGES: The same physical receipt line may appear in more than one image (e.g. overlap between photos, folds, or stitching). **Do not duplicate** items: merge or choose a single canonical entry per line; each purchased line must appear at most once in `items`.
+6. FREE / COMPLIMENTARY LINES: OMIT any line that is explicitly free, complimentary, promotional, a gift, or otherwise printed with a R0.00 / 0.00 price. Do not include them in `items`. Examples: "FREE COMBO 8", "COMPLIMENTARY WATER", "GIFT - CHOCOLATE", or any line whose printed amount is zero. Buy-one-get-one-free promotions: keep only the paid line(s); drop the free line entirely.
 
 ### Example Transformation:
 Input:
@@ -51,6 +52,7 @@ Extract all line items and the grand total (GROSS) from this receipt.
 - Ensure 'quantity' is an integer.
 - Ensure 'line_discount' is "0.00" if no discount is present.
 - Do not return null for any numeric fields; infer the unit price if it is not explicitly stated.
+- Skip any free / complimentary / promotional line (price 0.00). Do not emit it as an item.
 - Ensure the 'merchant_name' is extracted (e.g., 'Checkers Rondebosch' or 'Clicks').
 """
 
