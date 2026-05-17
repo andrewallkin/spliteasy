@@ -1,8 +1,6 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${DOCKER_IMAGE_BACKEND}
     env_file:
       - .env
     ports:
@@ -22,7 +20,7 @@ services:
     restart: always
 
   frontend:
-    build: ./frontend
+    image: ${DOCKER_IMAGE_FRONTEND}
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     depends_on:

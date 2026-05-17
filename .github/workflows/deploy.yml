@@ -21,10 +21,78 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Derive image metadata
+        id: image_meta
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DOCKERHUB_REPO}" ]; then
+            echo "::error::Missing required secret: DOCKERHUB_REPO"
+            exit 1
+          fi
+
+          BRANCH_SLUG="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          IMAGE_REPO="${DOCKERHUB_USERNAME}/${DOCKERHUB_REPO}"
+
+          BACKEND_IMAGE="${IMAGE_REPO}:backend-${BRANCH_SLUG}-${SHORT_SHA}"
+          FRONTEND_IMAGE="${IMAGE_REPO}:frontend-${BRANCH_SLUG}-${SHORT_SHA}"
+          BACKEND_BRANCH_LATEST="${IMAGE_REPO}:backend-${BRANCH_SLUG}-latest"
+          FRONTEND_BRANCH_LATEST="${IMAGE_REPO}:frontend-${BRANCH_SLUG}-latest"
+
+          echo "branch_slug=${BRANCH_SLUG}" >> "${GITHUB_OUTPUT}"
+          echo "short_sha=${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "backend_image=${BACKEND_IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_image=${FRONTEND_IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "backend_branch_latest=${BACKEND_BRANCH_LATEST}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_branch_latest=${FRONTEND_BRANCH_LATEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.image_meta.outputs.backend_image }}
+            ${{ steps.image_meta.outputs.backend_branch_latest }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ steps.image_meta.outputs.frontend_image }}
+            ${{ steps.image_meta.outputs.frontend_branch_latest }}
+
+      - name: Copy production compose file to VPS
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /srv/apps/${REPO_NAME}"
+          scp -i ~/.ssh/id_rsa -P ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/srv/apps/${REPO_NAME}/docker-compose.yml
+
       - name: Deploy to VPS
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          REPO_NAME: ${{ github.event.repository.name }}
           DEPLOY_BRANCH: ${{ github.ref_name }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKER_IMAGE_BACKEND: ${{ steps.image_meta.outputs.backend_image }}
+          DOCKER_IMAGE_FRONTEND: ${{ steps.image_meta.outputs.frontend_image }}
           # Values for generating .env on the VPS
           ENV_ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
           ENV_APP_NAME: ${{ secrets.APP_NAME }}
@@ -51,11 +119,10 @@ jobs:
           ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_GROUP_PROFILE_IMAGE_FOLDER }}
           ENV_GCS_USER_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_USER_PROFILE_IMAGE_FOLDER }}
         run: |
-          ssh -t -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no -o ServerAliveInterval=50 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} <<EOF
+          ssh -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no -o ServerAliveInterval=50 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} <<EOF
           set -euo pipefail
 
-          # Derive repo name from owner/repo (github.repository)
-          REPO_NAME="\$(basename "${GITHUB_REPOSITORY}")"
+          REPO_NAME="${REPO_NAME}"
           BRANCH="${DEPLOY_BRANCH}"
 
           echo "::group::Deployment Setup"
@@ -63,23 +130,8 @@ jobs:
           echo "Repository: \${REPO_NAME}"
           echo "Changing directory to /srv/apps"
           cd /srv/apps || { echo "Failed to change directory to /srv/apps"; exit 1; }
-          echo "::endgroup::"
-
-          echo "::group::Syncing Code"
-          if [ ! -d "\${REPO_NAME}/.git" ]; then
-            echo "Cloning fresh repository..."
-            rm -rf "\${REPO_NAME}" || true
-            mkdir -p "\${REPO_NAME}" || { echo "Failed to create project directory"; exit 1; }
-            cd "\${REPO_NAME}" || { echo "Failed to change directory to project directory"; exit 1; }
-            git clone -b \${BRANCH} https://${{ secrets.GH_USERNAME }}:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git . || { echo "Failed to clone repository"; exit 1; }
-          else
-            echo "Updating existing repository..."
-            cd "\${REPO_NAME}" || { echo "Failed to change directory to project directory"; exit 1; }
-            git fetch origin || { echo "Failed to fetch from origin"; exit 1; }
-            git checkout \${BRANCH} || git checkout -b \${BRANCH} origin/\${BRANCH} || { echo "Failed to checkout branch"; exit 1; }
-            git reset --hard origin/\${BRANCH} || { echo "Failed to reset to origin/\${BRANCH}"; exit 1; }
-          fi
-          echo "Code synced successfully"
+          mkdir -p "\${REPO_NAME}" || { echo "Failed to create project directory"; exit 1; }
+          cd "\${REPO_NAME}" || { echo "Failed to change directory to project directory"; exit 1; }
           echo "::endgroup::"
 
           echo "::group::Setting up Environment"
@@ -117,20 +169,24 @@ jobs:
           GCS_RECEIPTS_IMAGE_FOLDER=${ENV_GCS_RECEIPTS_IMAGE_FOLDER}
           GCS_GROUP_PROFILE_IMAGE_FOLDER=${ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER}
           GCS_USER_PROFILE_IMAGE_FOLDER=${ENV_GCS_USER_PROFILE_IMAGE_FOLDER}
+          DOCKER_IMAGE_BACKEND=${DOCKER_IMAGE_BACKEND}
+          DOCKER_IMAGE_FRONTEND=${DOCKER_IMAGE_FRONTEND}
           EOF_ENV
           echo "Environment configured"
           echo "::endgroup::"
 
+          echo "::group::Docker Hub Login"
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin || { echo "::error::Docker login failed"; exit 1; }
+          echo "::endgroup::"
+
           echo "::group::Cleaning up old containers"
           docker compose down --remove-orphans 2>&1 || true
-          docker image prune -a -f 2>&1 || true
-          docker builder prune -a -f 2>&1 || true
           echo "Cleanup complete"
           echo "::endgroup::"
 
-          echo "::group::Building Docker Images"
-          docker compose build || { echo "::error::Docker build failed"; exit 1; }
-          echo "Build complete"
+          echo "::group::Pulling Docker Images"
+          docker compose pull || { echo "::error::Docker pull failed"; exit 1; }
+          echo "Pull complete"
           echo "::endgroup::"
 
           echo "::group::Starting Containers"
