@@ -33,6 +33,13 @@ from app.schemas.groups import (
 )
 from app.services.balances import compute_group_balances, compute_suggested_settlements
 from app.services.gcs import GCSService, get_gcs_service
+from app.services.mark_paid import (
+    build_entry_split_outs,
+    build_receipt_share_lines,
+    entry_mark_paid_flags,
+    get_paid_map,
+    receipt_mark_paid_flags,
+)
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_GROUP_PICTURE_BYTES = 10 * 1024 * 1024
@@ -74,18 +81,39 @@ async def _manual_entry_splits_by_entry_id(
 
 
 def _history_entry_splits_payload(
+    entries: list[ManualEntry],
     splits_by_entry: dict[uuid.UUID, list[ManualEntrySplit]],
     display_name_map: dict[uuid.UUID, str],
-) -> dict[uuid.UUID, list[dict[str, str]]]:
-    out: dict[uuid.UUID, list[dict[str, str]]] = {}
-    for entry_id, splits in splits_by_entry.items():
-        lines = [
-            {"display_name": display_name_map.get(s.user_id, "unknown"), "amount": str(s.amount)}
-            for s in splits
-        ]
-        lines.sort(key=lambda line: line["display_name"])
-        out[entry_id] = lines
+    paid_map: dict,
+) -> dict[uuid.UUID, list[dict]]:
+    out: dict[uuid.UUID, list[dict]] = {}
+    for entry in entries:
+        splits = splits_by_entry.get(entry.id, [])
+        lines = []
+        for line in build_entry_split_outs(entry, splits, paid_map):
+            paid_at = line["paid_at"]
+            lines.append(
+                {
+                    "user_id": str(line["user_id"]),
+                    "display_name": display_name_map.get(line["user_id"], "unknown"),
+                    "amount": str(line["amount"]),
+                    "is_paid": line["is_paid"],
+                    "paid_at": paid_at.isoformat() if paid_at else None,
+                }
+            )
+        lines.sort(key=lambda row: row["display_name"])
+        out[entry.id] = lines
     return out
+
+
+def _history_entry_flags(
+    entry: ManualEntry,
+    splits: list[ManualEntrySplit],
+    current_user_id: uuid.UUID,
+    paid_map: dict,
+) -> tuple[bool, str | None]:
+    can_mark_paid, my_share_amount = entry_mark_paid_flags(entry, splits, current_user_id, paid_map)
+    return can_mark_paid, str(my_share_amount) if my_share_amount is not None else None
 
 
 async def _receipt_share_totals_by_receipt_id(
@@ -118,18 +146,40 @@ async def _receipt_share_totals_by_receipt_id(
 
 
 def _history_receipt_splits_payload(
+    receipts: list[Receipt],
     share_totals: dict[uuid.UUID, dict[uuid.UUID, Decimal]],
     display_name_map: dict[uuid.UUID, str],
-) -> dict[uuid.UUID, list[dict[str, str]]]:
-    out: dict[uuid.UUID, list[dict[str, str]]] = {}
-    for rid, per_user in share_totals.items():
-        lines = [
-            {"display_name": display_name_map.get(uid, "unknown"), "amount": str(amt)}
-            for uid, amt in per_user.items()
-        ]
-        lines.sort(key=lambda line: line["display_name"])
-        out[rid] = lines
+    paid_map: dict,
+) -> dict[uuid.UUID, list[dict]]:
+    out: dict[uuid.UUID, list[dict]] = {}
+    for receipt in receipts:
+        per_user = share_totals.get(receipt.id, {})
+        lines = []
+        for line in build_receipt_share_lines(receipt, per_user, display_name_map, paid_map):
+            paid_at = line["paid_at"]
+            lines.append(
+                {
+                    "user_id": str(line["user_id"]),
+                    "display_name": line["display_name"],
+                    "amount": str(line["amount"]),
+                    "is_paid": line["is_paid"],
+                    "paid_at": paid_at.isoformat() if paid_at else None,
+                }
+            )
+        out[receipt.id] = lines
     return out
+
+
+def _history_receipt_flags(
+    receipt: Receipt,
+    share_totals: dict[uuid.UUID, Decimal],
+    current_user_id: uuid.UUID,
+    paid_map: dict,
+) -> tuple[bool, str | None]:
+    can_mark_paid, my_share_amount = receipt_mark_paid_flags(
+        receipt, share_totals, current_user_id, paid_map
+    )
+    return can_mark_paid, str(my_share_amount) if my_share_amount is not None else None
 
 
 def _generate_join_code() -> str:
@@ -270,7 +320,14 @@ async def global_history(
             )
         ).all()
         receipt_share_totals = await _receipt_share_totals_by_receipt_id(db, [r.id for r in receipts])
-        receipt_splits_payload = _history_receipt_splits_payload(receipt_share_totals, user_map)
+        paid_map = await get_paid_map(
+            db,
+            entry_ids=[],
+            receipt_ids=[r.id for r in receipts],
+        )
+        receipt_splits_payload = _history_receipt_splits_payload(
+            receipts, receipt_share_totals, user_map, paid_map
+        )
         items.extend(
             [{
                 "type": "receipt",
@@ -292,6 +349,18 @@ async def global_history(
                     ),
                     "image_count": receipt.image_count,
                     "splits": receipt_splits_payload.get(receipt.id, []),
+                    "can_mark_paid": _history_receipt_flags(
+                        receipt,
+                        receipt_share_totals.get(receipt.id, {}),
+                        user.id,
+                        paid_map,
+                    )[0],
+                    "my_share_amount": _history_receipt_flags(
+                        receipt,
+                        receipt_share_totals.get(receipt.id, {}),
+                        user.id,
+                        paid_map,
+                    )[1],
                 },
             } for receipt in receipts]
         )
@@ -300,7 +369,12 @@ async def global_history(
             await db.scalars(select(ManualEntry).where(ManualEntry.group_id.in_(target_group_ids)))
         ).all()
         splits_by_entry = await _manual_entry_splits_by_entry_id(db, [e.id for e in entries])
-        splits_payload = _history_entry_splits_payload(splits_by_entry, user_map)
+        paid_map = await get_paid_map(
+            db,
+            entry_ids=[e.id for e in entries],
+            receipt_ids=[],
+        )
+        splits_payload = _history_entry_splits_payload(entries, splits_by_entry, user_map, paid_map)
         items.extend(
             [{
                 "type": "entry",
@@ -314,12 +388,30 @@ async def global_history(
                     "split_type": entry.split_type,
                     "created_by": user_map.get(entry.created_by, "unknown"),
                     "splits": splits_payload.get(entry.id, []),
+                    "can_mark_paid": _history_entry_flags(
+                        entry,
+                        splits_by_entry.get(entry.id, []),
+                        user.id,
+                        paid_map,
+                    )[0],
+                    "my_share_amount": _history_entry_flags(
+                        entry,
+                        splits_by_entry.get(entry.id, []),
+                        user.id,
+                        paid_map,
+                    )[1],
                 },
             } for entry in entries]
         )
     if type in (None, "settlement"):
         settlements = (
-            await db.scalars(select(Settlement).where(Settlement.group_id.in_(target_group_ids)))
+            await db.scalars(
+                select(Settlement).where(
+                    Settlement.group_id.in_(target_group_ids),
+                    Settlement.manual_entry_id.is_(None),
+                    Settlement.receipt_id.is_(None),
+                )
+            )
         ).all()
         items.extend(
             [{
@@ -667,7 +759,14 @@ async def history(
             )
         )).all()
         receipt_share_totals = await _receipt_share_totals_by_receipt_id(db, [r.id for r in receipts])
-        receipt_splits_payload = _history_receipt_splits_payload(receipt_share_totals, user_map)
+        paid_map = await get_paid_map(
+            db,
+            entry_ids=[],
+            receipt_ids=[r.id for r in receipts],
+        )
+        receipt_splits_payload = _history_receipt_splits_payload(
+            receipts, receipt_share_totals, user_map, paid_map
+        )
         items.extend(
             [{
                 "type": "receipt",
@@ -686,13 +785,30 @@ async def history(
                     "paid_by": user_map.get(r.paid_by_user_id or r.uploaded_by, "unknown"),
                     "image_count": r.image_count,
                     "splits": receipt_splits_payload.get(r.id, []),
+                    "can_mark_paid": _history_receipt_flags(
+                        r,
+                        receipt_share_totals.get(r.id, {}),
+                        user.id,
+                        paid_map,
+                    )[0],
+                    "my_share_amount": _history_receipt_flags(
+                        r,
+                        receipt_share_totals.get(r.id, {}),
+                        user.id,
+                        paid_map,
+                    )[1],
                 },
             } for r in receipts]
         )
     if type in (None, "entry"):
         entries = (await db.scalars(select(ManualEntry).where(ManualEntry.group_id == group_id))).all()
         splits_by_entry = await _manual_entry_splits_by_entry_id(db, [e.id for e in entries])
-        splits_payload = _history_entry_splits_payload(splits_by_entry, user_map)
+        paid_map = await get_paid_map(
+            db,
+            entry_ids=[e.id for e in entries],
+            receipt_ids=[],
+        )
+        splits_payload = _history_entry_splits_payload(entries, splits_by_entry, user_map, paid_map)
         items.extend(
             [{
                 "type": "entry",
@@ -706,11 +822,31 @@ async def history(
                     "split_type": e.split_type,
                     "created_by": user_map.get(e.created_by, "unknown"),
                     "splits": splits_payload.get(e.id, []),
+                    "can_mark_paid": _history_entry_flags(
+                        e,
+                        splits_by_entry.get(e.id, []),
+                        user.id,
+                        paid_map,
+                    )[0],
+                    "my_share_amount": _history_entry_flags(
+                        e,
+                        splits_by_entry.get(e.id, []),
+                        user.id,
+                        paid_map,
+                    )[1],
                 },
             } for e in entries]
         )
     if type in (None, "settlement"):
-        settlements = (await db.scalars(select(Settlement).where(Settlement.group_id == group_id))).all()
+        settlements = (
+            await db.scalars(
+                select(Settlement).where(
+                    Settlement.group_id == group_id,
+                    Settlement.manual_entry_id.is_(None),
+                    Settlement.receipt_id.is_(None),
+                )
+            )
+        ).all()
         items.extend(
             [{
                 "type": "settlement",

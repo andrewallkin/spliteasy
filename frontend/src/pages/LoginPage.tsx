@@ -56,7 +56,7 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 shrink-0 overflow-hidden rounded-3xl shadow-glow ring-1 ring-ink-faint/15">
-            <img src="/spliteasy-icon.jpeg" alt="" className="h-full w-full object-cover" width={64} height={64} />
+            <img src="/favicon.png" alt="" className="h-full w-full object-cover" width={64} height={64} />
           </div>
           <h1 className="text-2xl font-bold text-ink">Welcome back</h1>
           <p className="mt-1 text-sm text-ink-secondary">Sign in to SplitEasy</p>

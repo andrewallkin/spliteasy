@@ -91,10 +91,36 @@ export type ManualEntrySplit = {
   user_id: string
   amount: string
   percentage?: string | null
+  is_paid?: boolean | null
+  paid_at?: string | null
 }
 
 export type ManualEntryDetail = ManualEntry & {
   splits: ManualEntrySplit[]
+  can_mark_paid?: boolean
+  my_share_amount?: string | null
+}
+
+export type ReceiptShareLine = {
+  user_id: string
+  display_name: string
+  amount: string
+  is_paid?: boolean | null
+  paid_at?: string | null
+}
+
+export type ReceiptShareOut = {
+  id: string
+  group_id: string
+  nickname?: string | null
+  merchant_name?: string | null
+  total_amount?: string | null
+  currency?: string | null
+  paid_by_user_id?: string | null
+  status: string
+  splits: ReceiptShareLine[]
+  can_mark_paid?: boolean
+  my_share_amount?: string | null
 }
 
 export type Settlement = {
@@ -108,8 +134,11 @@ export type Settlement = {
 }
 
 export type GroupHistoryEntrySplitLine = {
+  user_id?: string
   display_name: string
   amount: string
+  is_paid?: boolean | null
+  paid_at?: string | null
 }
 
 /** `data` payload for `GroupHistoryItem` when `type === 'entry'` */
@@ -120,6 +149,8 @@ export type GroupHistoryEntryData = {
   /** Payer display name (stored as `created_by` on the API) */
   created_by?: string | null
   splits?: GroupHistoryEntrySplitLine[]
+  can_mark_paid?: boolean
+  my_share_amount?: string | null
 }
 
 /** `data` payload for `GroupHistoryItem` when `type === 'receipt'` */
@@ -136,6 +167,8 @@ export type GroupHistoryReceiptData = {
   /** Number of receipt images stored (multi-page uploads) */
   image_count?: number
   splits?: GroupHistoryEntrySplitLine[]
+  can_mark_paid?: boolean
+  my_share_amount?: string | null
 }
 
 export type SuggestedSettlement = {

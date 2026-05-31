@@ -16,6 +16,7 @@ import {
 import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type { Group, GroupHistoryItem } from '@/types/models'
@@ -39,6 +40,7 @@ function GlobalHistoryPage() {
   const [items, setItems] = useState<GroupHistoryItem[]>([])
   const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const { user } = useAuth()
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
 
@@ -144,6 +146,7 @@ function GlobalHistoryPage() {
               key={`${item.group_id}-${item.type}-${item.id}`}
               item={item}
               showGroupName
+              currentUserId={user?.id}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
               onReceiptImageClick={(receiptId, imageCount) =>
@@ -189,6 +192,11 @@ function GlobalHistoryPage() {
         onFirstUserPercentageChange={(value) => entryModal.setFirstUserPercentageDraft(Math.max(1, Math.min(99, value)))}
         onSave={entryModal.onSaveEntry}
         onDelete={entryModal.onDeleteSelectedEntry}
+        canMarkPaid={entryModal.canMarkPaid}
+        canUndoMarkPaid={entryModal.canUndoMarkPaid}
+        isMarkPaidLoading={entryModal.isMarkPaidLoading}
+        onMarkPaid={entryModal.onMarkEntryPaid}
+        onUnmarkPaid={entryModal.onUnmarkEntryPaid}
       />
 
       <ReceiptDetailModal
@@ -203,6 +211,13 @@ function GlobalHistoryPage() {
         isLoading={receiptModal.isLoading}
         isSaving={receiptModal.isSaving}
         isDeleting={receiptModal.isDeleting}
+        receiptSplits={receiptModal.receiptSplits}
+        canMarkPaid={receiptModal.canMarkPaid}
+        canUndoMarkPaid={receiptModal.canUndoMarkPaid}
+        hasPaidSplits={receiptModal.hasPaidSplits}
+        isMarkPaidLoading={receiptModal.isMarkPaidLoading}
+        onMarkPaid={receiptModal.onMarkReceiptPaid}
+        onUnmarkPaid={receiptModal.onUnmarkReceiptPaid}
         onClose={receiptModal.closeReceiptModal}
         onNicknameChange={receiptModal.setNickname}
         onMerchantNameChange={receiptModal.setMerchantName}
@@ -223,7 +238,7 @@ function GlobalHistoryPage() {
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}
-        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting}
+        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting || entryModal.isMarkPaidLoading || receiptModal.isMarkPaidLoading}
       />
     </div>
   )

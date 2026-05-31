@@ -20,9 +20,20 @@ from app.schemas.receipts import (
     ReceiptAssignRequest,
     ReceiptOut,
     ReceiptPatchRequest,
+    ReceiptShareLineOut,
+    ReceiptShareOut,
     ReceiptUpdateItemsRequest,
 )
 from app.services.gcs import GCSService, get_gcs_service
+from app.services.mark_paid import (
+    build_receipt_share_lines,
+    create_receipt_mark_paid,
+    delete_receipt_mark_paid,
+    get_paid_map,
+    get_receipt_share_totals,
+    receipt_has_linked_settlements,
+    receipt_mark_paid_flags,
+)
 from app.services.ocr import extract_receipt_items, image_bytes_to_jpeg_bytes
 
 router = APIRouter(tags=["receipts"])
@@ -53,6 +64,48 @@ def _positive_ocr_items(items):
             continue
         yield sort_index, item, final_total
         sort_index += 1
+
+
+async def _get_receipt_for_group(
+    db: AsyncSession, group_id: uuid.UUID, receipt_id: uuid.UUID
+) -> Receipt:
+    receipt = await db.get(Receipt, receipt_id)
+    if not receipt or receipt.group_id != group_id:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    return receipt
+
+
+async def _serialize_receipt_share(
+    db: AsyncSession,
+    receipt: Receipt,
+    current_user_id: uuid.UUID,
+) -> ReceiptShareOut:
+    share_totals_map = await get_receipt_share_totals(db, [receipt.id])
+    share_totals = share_totals_map.get(receipt.id, {})
+    paid_map = await get_paid_map(db, receipt_ids=[receipt.id])
+    members = (
+        await db.scalars(select(GroupMember).where(GroupMember.group_id == receipt.group_id))
+    ).all()
+    user_ids = {m.user_id for m in members} | set(share_totals.keys())
+    users = (await db.scalars(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []
+    display_name_map = {u.id: u.display_name for u in users}
+    lines = build_receipt_share_lines(receipt, share_totals, display_name_map, paid_map)
+    can_mark_paid, my_share_amount = receipt_mark_paid_flags(
+        receipt, share_totals, current_user_id, paid_map
+    )
+    return ReceiptShareOut(
+        id=receipt.id,
+        group_id=receipt.group_id,
+        nickname=receipt.nickname,
+        merchant_name=receipt.merchant_name,
+        total_amount=receipt.total_amount,
+        currency=receipt.currency,
+        paid_by_user_id=receipt.paid_by_user_id,
+        status=receipt.status.value if hasattr(receipt.status, "value") else str(receipt.status),
+        splits=[ReceiptShareLineOut(**line) for line in lines],
+        can_mark_paid=can_mark_paid,
+        my_share_amount=my_share_amount,
+    )
 
 
 @router.post("/groups/{group_id}/receipts", response_model=ReceiptOut, status_code=201)
@@ -231,6 +284,11 @@ async def update_receipt_items(
     await require_group_member(receipt.group_id, user, db)
     if receipt.status not in ("pending_review", "confirmed", "assigned"):
         raise HTTPException(status_code=400, detail="Receipt not editable in current state")
+    if await receipt_has_linked_settlements(db, receipt.id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot change items after someone marked this receipt as paid",
+        )
 
     await db.execute(delete(LineItem).where(LineItem.receipt_id == receipt.id))
     for index, item in enumerate(payload.items):
@@ -271,6 +329,11 @@ async def assign_receipt(
     await require_group_member(receipt.group_id, user, db)
     if receipt.status not in ("confirmed", "assigned"):
         raise HTTPException(status_code=400, detail="Receipt must be confirmed before assignment")
+    if await receipt_has_linked_settlements(db, receipt.id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot reassign after someone marked this receipt as paid",
+        )
 
     members = (await db.scalars(select(GroupMember).where(GroupMember.group_id == receipt.group_id))).all()
     member_id_set = {member.user_id for member in members}
@@ -391,3 +454,29 @@ async def list_group_receipts(
         query = query.where(Receipt.status == status)
     rows = (await db.scalars(query)).all()
     return [ReceiptOut.model_validate(row) for row in rows]
+
+
+@router.post("/groups/{group_id}/receipts/{receipt_id}/mark-paid", response_model=ReceiptShareOut)
+async def mark_receipt_paid(
+    group_id: uuid.UUID,
+    receipt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    receipt = await _get_receipt_for_group(db, group_id, receipt_id)
+    await create_receipt_mark_paid(db, group_id, receipt, user.id)
+    return await _serialize_receipt_share(db, receipt, user.id)
+
+
+@router.delete("/groups/{group_id}/receipts/{receipt_id}/mark-paid", response_model=ReceiptShareOut)
+async def unmark_receipt_paid(
+    group_id: uuid.UUID,
+    receipt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    receipt = await _get_receipt_for_group(db, group_id, receipt_id)
+    await delete_receipt_mark_paid(db, group_id, receipt, user.id)
+    return await _serialize_receipt_share(db, receipt, user.id)

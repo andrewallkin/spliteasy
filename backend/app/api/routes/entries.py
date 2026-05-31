@@ -21,6 +21,14 @@ from app.schemas.entries import (
     SettlementOut,
 )
 from app.services.balances import compute_group_balances
+from app.services.mark_paid import (
+    build_entry_split_outs,
+    create_entry_mark_paid,
+    delete_entry_mark_paid,
+    entry_has_linked_settlements,
+    entry_mark_paid_flags,
+    get_paid_map,
+)
 
 router = APIRouter(prefix="/groups/{group_id}", tags=["entries"])
 
@@ -134,8 +142,20 @@ async def _get_entry_splits(db: AsyncSession, entry_id: uuid.UUID) -> list[Manua
 
 
 def _serialize_entry_detail(
-    entry: ManualEntry, splits: list[ManualEntrySplit]
+    entry: ManualEntry,
+    splits: list[ManualEntrySplit],
+    paid_map: dict | None = None,
+    current_user_id: uuid.UUID | None = None,
 ) -> ManualEntryDetailOut:
+    if paid_map is None:
+        paid_map = {}
+    split_lines = build_entry_split_outs(entry, splits, paid_map)
+    can_mark_paid = False
+    my_share_amount = None
+    if current_user_id is not None:
+        can_mark_paid, my_share_amount = entry_mark_paid_flags(
+            entry, splits, current_user_id, paid_map
+        )
     return ManualEntryDetailOut(
         id=entry.id,
         group_id=entry.group_id,
@@ -148,14 +168,9 @@ def _serialize_entry_detail(
             else str(entry.split_type)
         ),
         created_at=entry.created_at,
-        splits=[
-            ManualEntrySplitOut(
-                user_id=split.user_id,
-                amount=split.amount,
-                percentage=split.percentage,
-            )
-            for split in splits
-        ],
+        splits=[ManualEntrySplitOut(**line) for line in split_lines],
+        can_mark_paid=can_mark_paid,
+        my_share_amount=my_share_amount,
     )
 
 
@@ -230,7 +245,8 @@ async def get_entry(
     await require_group_member(group_id, user, db)
     entry = await _get_entry_for_group(db, group_id, entry_id)
     splits = await _get_entry_splits(db, entry.id)
-    return _serialize_entry_detail(entry, splits)
+    paid_map = await get_paid_map(db, entry_ids=[entry.id])
+    return _serialize_entry_detail(entry, splits, paid_map, user.id)
 
 
 @router.patch("/entries/{entry_id}", response_model=ManualEntryDetailOut)
@@ -244,6 +260,22 @@ async def update_entry(
     await require_group_member(group_id, user, db)
     entry = await _get_entry_for_group(db, group_id, entry_id)
     existing_splits = await _get_entry_splits(db, entry.id)
+
+    if await entry_has_linked_settlements(db, entry.id):
+        structural_change = any(
+            value is not None
+            for value in (
+                payload.total_amount,
+                payload.paid_by,
+                payload.split_type,
+                payload.splits,
+            )
+        )
+        if structural_change:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot change splits or amounts after someone marked this expense as paid",
+            )
 
     members = (await db.scalars(select(GroupMember).where(GroupMember.group_id == group_id))).all()
     member_ids = {member.user_id for member in members}
@@ -294,7 +326,38 @@ async def update_entry(
     await db.commit()
     await db.refresh(entry)
     updated_splits = await _get_entry_splits(db, entry.id)
-    return _serialize_entry_detail(entry, updated_splits)
+    paid_map = await get_paid_map(db, entry_ids=[entry.id])
+    return _serialize_entry_detail(entry, updated_splits, paid_map, user.id)
+
+
+@router.post("/entries/{entry_id}/mark-paid", response_model=ManualEntryDetailOut)
+async def mark_entry_paid(
+    group_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    entry = await _get_entry_for_group(db, group_id, entry_id)
+    splits = await _get_entry_splits(db, entry.id)
+    await create_entry_mark_paid(db, group_id, entry, splits, user.id)
+    paid_map = await get_paid_map(db, entry_ids=[entry.id])
+    return _serialize_entry_detail(entry, splits, paid_map, user.id)
+
+
+@router.delete("/entries/{entry_id}/mark-paid", response_model=ManualEntryDetailOut)
+async def unmark_entry_paid(
+    group_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_group_member(group_id, user, db)
+    entry = await _get_entry_for_group(db, group_id, entry_id)
+    splits = await _get_entry_splits(db, entry.id)
+    await delete_entry_mark_paid(db, group_id, entry, user.id)
+    paid_map = await get_paid_map(db, entry_ids=[entry.id])
+    return _serialize_entry_detail(entry, splits, paid_map, user.id)
 
 
 @router.delete("/entries/{entry_id}", status_code=204)
