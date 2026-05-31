@@ -58,10 +58,14 @@ class ManualEntrySplitOut(BaseModel):
     user_id: uuid.UUID
     amount: Decimal
     percentage: Decimal | None = None
+    is_paid: bool | None = None
+    paid_at: datetime | None = None
 
 
 class ManualEntryDetailOut(ManualEntryOut):
     splits: list[ManualEntrySplitOut]
+    can_mark_paid: bool = False
+    my_share_amount: Decimal | None = None
 
 
 class SettlementCreateRequest(BaseModel):

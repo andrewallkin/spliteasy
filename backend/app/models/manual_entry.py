@@ -58,6 +58,10 @@ class Settlement(Base):
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_settlements_amount_positive"),
         CheckConstraint("paid_by <> paid_to", name="ck_settlements_paid_by_not_paid_to"),
+        CheckConstraint(
+            "NOT (manual_entry_id IS NOT NULL AND receipt_id IS NOT NULL)",
+            name="ck_settlements_single_expense_link",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -72,4 +76,10 @@ class Settlement(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    manual_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("manual_entries.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    receipt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("receipts.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     settled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

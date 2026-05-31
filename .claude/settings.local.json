@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(gh issue:*)",
+      "Bash(wc:*)",
+      "Bash(npx tsc:*)",
+      "Bash(python -c ':*)",
+      "Bash(python3 -c ':*)",
+      "Bash(python3 -m py_compile /Users/andrewallkin/personal/repos/spliteasy/backend/app/api/routes/entries.py)",
+      "Bash(python3 -m py_compile /Users/andrewallkin/personal/repos/spliteasy/backend/app/api/routes/receipts.py)",
+      "Bash(python3 -m py_compile /Users/andrewallkin/personal/repos/spliteasy/backend/app/services/balances.py)",
+      "Bash(python3 -m py_compile /Users/andrewallkin/personal/repos/spliteasy/backend/app/schemas/common.py)",
+      "Bash(python3:*)"
+    ]
+  }
+}

@@ -516,7 +516,18 @@ export function GroupDetailPage() {
         </div>
       </Card>
 
-      <GroupScopedHistory groupId={id} variant="embedded" />
+      <GroupScopedHistory
+        groupId={id}
+        variant="embedded"
+        onBalancesChanged={() => {
+          void getBalances(id).then((data) => {
+            setBalance(data)
+            if (isMultiUser) {
+              getSuggestedSettlements(id).then(setSuggestedSettlements).catch(() => {/* best-effort */})
+            }
+          })
+        }}
+      />
 
       {/* Invitations */}
       {isOwner && (

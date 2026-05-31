@@ -8,7 +8,11 @@ import {
   getHistory,
   getReceiptImageBlob,
   getReceiptItems,
+  markEntryPaid,
+  markReceiptPaid,
   patchReceipt,
+  unmarkEntryPaid,
+  unmarkReceiptPaid,
   updateEntry,
   updateReceiptItems,
 } from '@/api/groups'
@@ -18,10 +22,12 @@ import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { type ConfirmDialogOptions, useConfirmDialog } from '@/hooks/useConfirmDialog'
 import type {
   GroupHistoryEntryData,
+  GroupHistoryEntrySplitLine,
   GroupHistoryItem,
   GroupHistoryReceiptData,
   GroupMember,
@@ -86,6 +92,72 @@ function splitTypeCaption(splitType: string | null | undefined) {
     return 'Custom percentage split'
   }
   return 'Split'
+}
+
+function SplitLineRow({
+  line,
+  currency,
+  currentUserId,
+}: {
+  line: GroupHistoryEntrySplitLine
+  currency?: string
+  currentUserId?: string
+}) {
+  const isMe = line.user_id && currentUserId && line.user_id === currentUserId
+  return (
+    <li className="flex items-center justify-between gap-3 text-sm text-ink-secondary">
+      <span>{line.display_name}{isMe ? ' (you)' : ''}</span>
+      <span className="shrink-0 font-semibold tabular-nums text-ink">
+        {formatCurrency(Number(line.amount), currency)}
+      </span>
+    </li>
+  )
+}
+
+function MarkPaidButtons({
+  canMarkPaid,
+  canUndo,
+  isLoading,
+  onMark,
+  onUndo,
+}: {
+  canMarkPaid?: boolean
+  canUndo?: boolean
+  isLoading?: boolean
+  onMark: () => void
+  onUndo: () => void
+}) {
+  if (!canMarkPaid && !canUndo) {
+    return null
+  }
+  return (
+    <>
+      {canMarkPaid && (
+        <Button
+          variant="secondary"
+          className="h-10 rounded-xl px-4 text-xs"
+          disabled={isLoading}
+          onClick={onMark}
+        >
+          {isLoading ? 'Saving...' : 'Mark as paid'}
+        </Button>
+      )}
+      {canUndo && (
+        <Button
+          variant="secondary"
+          className="h-10 rounded-xl px-4 text-xs"
+          disabled={isLoading}
+          onClick={onUndo}
+        >
+          {isLoading ? 'Saving...' : 'Undo paid'}
+        </Button>
+      )}
+    </>
+  )
+}
+
+function entryHasPaidSplits(entry: ManualEntryDetail | null): boolean {
+  return Boolean(entry?.splits.some((split) => split.is_paid === true))
 }
 
 function useReceiptImageBlobs(receiptId: string, imageCount: number, enabled: boolean) {
@@ -320,12 +392,14 @@ ReceiptImageCarousel.displayName = 'ReceiptImageCarousel'
 export function HistoryCard({
   item,
   showGroupName,
+  currentUserId,
   onEntryClick,
   onReceiptClick,
   onReceiptImageClick,
 }: {
   item: GroupHistoryItem
   showGroupName: boolean
+  currentUserId?: string
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
   onReceiptImageClick: (receiptId: string, imageCount: number) => void
@@ -388,15 +462,11 @@ export function HistoryCard({
               <p className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Split</p>
               <ul className="space-y-0.5">
                 {entryData.splits.map((line) => (
-                  <li
-                    key={`${line.display_name}-${line.amount}`}
-                    className="flex justify-between gap-3 text-sm text-ink-secondary"
-                  >
-                    <span>{line.display_name}</span>
-                    <span className="shrink-0 font-semibold tabular-nums text-ink">
-                      {formatCurrency(Number(line.amount))}
-                    </span>
-                  </li>
+                  <SplitLineRow
+                    key={`${line.user_id ?? line.display_name}-${line.amount}`}
+                    line={line}
+                    currentUserId={currentUserId}
+                  />
                 ))}
               </ul>
             </div>
@@ -453,18 +523,12 @@ export function HistoryCard({
                 <p className="text-[10px] font-bold uppercase tracking-wider text-ink-tertiary">Split</p>
                 <ul className="space-y-0.5">
                   {receiptData.splits.map((line) => (
-                    <li
-                      key={`${line.display_name}-${line.amount}`}
-                      className="flex justify-between gap-3 text-sm text-ink-secondary"
-                    >
-                      <span>{line.display_name}</span>
-                      <span className="shrink-0 font-semibold tabular-nums text-ink">
-                        {formatCurrency(
-                          Number(line.amount),
-                          typeof receiptData.currency === 'string' ? receiptData.currency : undefined,
-                        )}
-                      </span>
-                    </li>
+                    <SplitLineRow
+                      key={`${line.user_id ?? line.display_name}-${line.amount}`}
+                      line={line}
+                      currency={typeof receiptData.currency === 'string' ? receiptData.currency : undefined}
+                      currentUserId={currentUserId}
+                    />
                   ))}
                 </ul>
               </div>
@@ -637,6 +701,13 @@ export function ReceiptDetailModal({
   onItemAdd,
   onSave,
   onDelete,
+  receiptSplits,
+  canMarkPaid,
+  canUndoMarkPaid,
+  hasPaidSplits,
+  isMarkPaidLoading,
+  onMarkPaid,
+  onUnmarkPaid,
 }: {
   isOpen: boolean
   nickname: string
@@ -660,6 +731,13 @@ export function ReceiptDetailModal({
   onItemAdd: () => void
   onSave: () => void
   onDelete: () => void
+  receiptSplits?: GroupHistoryEntrySplitLine[]
+  canMarkPaid?: boolean
+  canUndoMarkPaid?: boolean
+  hasPaidSplits?: boolean
+  isMarkPaidLoading?: boolean
+  onMarkPaid?: () => void
+  onUnmarkPaid?: () => void
 }) {
   useEffect(() => {
     if (!isOpen) return
@@ -749,7 +827,7 @@ export function ReceiptDetailModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Total Amount</label>
-                  <Input inputMode="decimal" value={totalAmount} onChange={(e) => onTotalAmountChange(e.target.value)} disabled={isSaving || isDeleting} />
+                  <Input inputMode="decimal" value={totalAmount} onChange={(e) => onTotalAmountChange(e.target.value)} disabled={isSaving || isDeleting || hasPaidSplits} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Currency</label>
@@ -761,7 +839,7 @@ export function ReceiptDetailModal({
                 <select
                   value={paidBy}
                   onChange={(e) => onPaidByChange(e.target.value)}
-                  disabled={isSaving || isDeleting}
+                  disabled={isSaving || isDeleting || hasPaidSplits}
                   className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((m) => (
@@ -891,8 +969,30 @@ export function ReceiptDetailModal({
               </div>
             )}
 
+            {receiptSplits && receiptSplits.length > 0 && (
+              <div className="space-y-1 rounded-2xl bg-surface-secondary p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split</p>
+                <ul className="space-y-0.5">
+                  {receiptSplits.map((line) => (
+                    <SplitLineRow
+                      key={`${line.user_id ?? line.display_name}-${line.amount}`}
+                      line={line}
+                      currency={currency || undefined}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex flex-wrap justify-end gap-2">
+              <MarkPaidButtons
+                canMarkPaid={canMarkPaid}
+                canUndo={canUndoMarkPaid}
+                isLoading={isMarkPaidLoading}
+                onMark={() => onMarkPaid?.()}
+                onUndo={() => onUnmarkPaid?.()}
+              />
               <Button
                 variant="danger"
                 onClick={onDelete}
@@ -906,7 +1006,7 @@ export function ReceiptDetailModal({
                 disabled={isSaving || isDeleting}
                 className="h-10 rounded-xl px-4 text-xs"
               >
-                {isSaving ? 'Saving...' : 'Save Changes'}
+                {isSaving ? 'Saving...' : hasPaidSplits ? 'Save details' : 'Save Changes'}
               </Button>
             </div>
           </div>
@@ -920,14 +1020,20 @@ export function ReceiptDetailModal({
 // useReceiptDetailModal
 // ---------------------------------------------------------------------------
 
-export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestConfirm: RequestConfirm) {
+export function useReceiptDetailModal(
+  loadHistory: () => Promise<void>,
+  requestConfirm: RequestConfirm,
+  onBalancesChanged?: () => void,
+) {
   const { addToast } = useToast()
+  const { user } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [receiptId, setReceiptId] = useState('')
   const [groupId, setGroupId] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isMarkPaidLoading, setIsMarkPaidLoading] = useState(false)
   const [members, setMembers] = useState<GroupMember[]>([])
   const [items, setItems] = useState<ReceiptItemDraft[]>([])
   const [nickname, setNickname] = useState('')
@@ -936,10 +1042,14 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
   const [currency, setCurrency] = useState('')
   const [paidBy, setPaidBy] = useState('')
   const [nextItemKey, setNextItemKey] = useState(0)
+  const [canMarkPaid, setCanMarkPaid] = useState(false)
+  const [myShareAmount, setMyShareAmount] = useState<string | null>(null)
+  const [receiptSplits, setReceiptSplits] = useState<GroupHistoryEntrySplitLine[]>([])
+  const [payerDisplayName, setPayerDisplayName] = useState<string | null>(null)
 
   async function openReceiptModal(item: GroupHistoryItem) {
     if (item.type !== 'receipt') return
-    const data = item.data as Record<string, string | null | undefined>
+    const data = item.data as GroupHistoryReceiptData
     setIsOpen(true)
     setIsLoading(true)
     setReceiptId(item.id)
@@ -948,6 +1058,10 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     setMerchantName(data.merchant_name ?? '')
     setTotalAmount(data.total_amount ?? '')
     setCurrency(data.currency ?? 'ZAR')
+    setCanMarkPaid(Boolean(data.can_mark_paid))
+    setMyShareAmount(data.my_share_amount ?? null)
+    setReceiptSplits(data.splits ?? [])
+    setPayerDisplayName(data.paid_by ?? null)
 
     try {
       const [ocrItems, groupMembers] = await Promise.all([
@@ -977,6 +1091,10 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     setGroupId('')
     setItems([])
     setMembers([])
+    setCanMarkPaid(false)
+    setMyShareAmount(null)
+    setReceiptSplits([])
+    setPayerDisplayName(null)
   }
 
   function onItemChange(key: string, patch: Partial<ReceiptItemDraft>) {
@@ -1011,13 +1129,19 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     if (!receiptId) return
     setIsSaving(true)
     try {
-      // 1. Patch receipt-level fields
       await patchReceipt(receiptId, {
         nickname: nickname || null,
         merchant_name: merchantName || null,
-        total_amount: totalAmount ? parseFloat(totalAmount) : null,
+        total_amount: hasPaidSplits ? undefined : (totalAmount ? parseFloat(totalAmount) : null),
         currency: currency || null,
       })
+
+      if (hasPaidSplits) {
+        addToast('success', 'Receipt updated')
+        await loadHistory()
+        closeReceiptModal(true)
+        return
+      }
 
       // 2. Update line items
       const itemsPayload = items.map((item) => ({
@@ -1087,6 +1211,71 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     }
   }
 
+  async function onMarkReceiptPaid() {
+    if (!groupId || !receiptId) return
+    const confirmed = await requestConfirm({
+      title: 'Mark as paid?',
+      message: `Record that you paid ${payerDisplayName ?? 'them'} ${formatCurrency(Number(myShareAmount ?? 0), currency || undefined)} for ${nickname || merchantName || 'this receipt'}?`,
+      confirmLabel: 'Mark as paid',
+    })
+    if (!confirmed) return
+    setIsMarkPaidLoading(true)
+    try {
+      const updated = await markReceiptPaid(groupId, receiptId)
+      setCanMarkPaid(Boolean(updated.can_mark_paid))
+      setMyShareAmount(updated.my_share_amount ?? null)
+      setReceiptSplits(updated.splits.map((line) => ({
+        user_id: line.user_id,
+        display_name: line.display_name,
+        amount: line.amount,
+        is_paid: line.is_paid,
+        paid_at: line.paid_at,
+      })))
+      addToast('success', 'Marked as paid')
+      await loadHistory()
+      onBalancesChanged?.()
+    } catch (error) {
+      addToast('error', getErrorMessage(error, 'Unable to mark as paid'))
+    } finally {
+      setIsMarkPaidLoading(false)
+    }
+  }
+
+  async function onUnmarkReceiptPaid() {
+    if (!groupId || !receiptId) return
+    const confirmed = await requestConfirm({
+      title: 'Undo paid?',
+      message: 'Remove the paid record for your share on this receipt?',
+      confirmLabel: 'Undo paid',
+    })
+    if (!confirmed) return
+    setIsMarkPaidLoading(true)
+    try {
+      const updated = await unmarkReceiptPaid(groupId, receiptId)
+      setCanMarkPaid(Boolean(updated.can_mark_paid))
+      setMyShareAmount(updated.my_share_amount ?? null)
+      setReceiptSplits(updated.splits.map((line) => ({
+        user_id: line.user_id,
+        display_name: line.display_name,
+        amount: line.amount,
+        is_paid: line.is_paid,
+        paid_at: line.paid_at,
+      })))
+      addToast('success', 'Payment record removed')
+      await loadHistory()
+      onBalancesChanged?.()
+    } catch (error) {
+      addToast('error', getErrorMessage(error, 'Unable to undo paid'))
+    } finally {
+      setIsMarkPaidLoading(false)
+    }
+  }
+
+  const canUndoMarkPaid = user
+    ? receiptSplits.some((split) => split.user_id === user.id && split.is_paid === true)
+    : false
+  const hasPaidSplits = receiptSplits.some((split) => split.is_paid === true)
+
   return {
     isOpen,
     receiptId,
@@ -1094,6 +1283,7 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     isLoading,
     isSaving,
     isDeleting,
+    isMarkPaidLoading,
     members,
     items,
     nickname,
@@ -1101,6 +1291,12 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     totalAmount,
     currency,
     paidBy,
+    receiptSplits,
+    canMarkPaid,
+    canUndoMarkPaid,
+    myShareAmount,
+    payerDisplayName,
+    hasPaidSplits,
     nextItemKey,
     setNickname,
     setMerchantName,
@@ -1114,6 +1310,8 @@ export function useReceiptDetailModal(loadHistory: () => Promise<void>, requestC
     onItemAdd,
     onSave,
     onDelete,
+    onMarkReceiptPaid,
+    onUnmarkReceiptPaid,
   }
 }
 
@@ -1144,6 +1342,11 @@ export function EntryDetailModal({
   onFirstUserPercentageChange,
   onSave,
   onDelete,
+  canMarkPaid,
+  canUndoMarkPaid,
+  isMarkPaidLoading,
+  onMarkPaid,
+  onUnmarkPaid,
 }: {
   isOpen: boolean
   entry: ManualEntryDetail | null
@@ -1167,6 +1370,11 @@ export function EntryDetailModal({
   onFirstUserPercentageChange: (value: number) => void
   onSave: () => void
   onDelete: () => void
+  canMarkPaid?: boolean
+  canUndoMarkPaid?: boolean
+  isMarkPaidLoading?: boolean
+  onMarkPaid?: () => void
+  onUnmarkPaid?: () => void
 }) {
   useEffect(() => {
     if (!isOpen) {
@@ -1191,6 +1399,7 @@ export function EntryDetailModal({
 
   const parsedAmount = Number(amountDraft) || 0
   const secondUser = members[1]
+  const canEditStructure = canEdit && !entryHasPaidSplits(entry)
 
   return (
     <div
@@ -1255,7 +1464,7 @@ export function EntryDetailModal({
                   value={amountDraft}
                   onChange={(event) => onAmountChange(event.target.value)}
                   inputMode="decimal"
-                  disabled={!canEdit || isSaving || isDeleting}
+                  disabled={!canEditStructure || isSaving || isDeleting}
                 />
               </div>
 
@@ -1266,7 +1475,7 @@ export function EntryDetailModal({
                 <select
                   value={paidBy}
                   onChange={(event) => onPaidByChange(event.target.value)}
-                  disabled={!canEdit || isSaving || isDeleting}
+                  disabled={!canEditStructure || isSaving || isDeleting}
                   className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                 >
                   {members.map((member) => (
@@ -1291,7 +1500,7 @@ export function EntryDetailModal({
                       key={key}
                       type="button"
                       onClick={() => onSplitModeChange(key)}
-                      disabled={!canEdit || isSaving || isDeleting}
+                      disabled={!canEditStructure || isSaving || isDeleting}
                       className={`rounded-2xl border-2 px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
                         splitMode === key
                           ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
@@ -1312,7 +1521,7 @@ export function EntryDetailModal({
                   <select
                     value={fullSplitUserId}
                     onChange={(event) => onFullSplitUserIdChange(event.target.value)}
-                    disabled={!canEdit || isSaving || isDeleting}
+                    disabled={!canEditStructure || isSaving || isDeleting}
                     className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
                   >
                     {members
@@ -1338,7 +1547,7 @@ export function EntryDetailModal({
                     step={1}
                     value={firstUserPercentage}
                     onChange={(event) => onFirstUserPercentageChange(Number(event.target.value))}
-                    disabled={!canEdit || isSaving || isDeleting}
+                    disabled={!canEditStructure || isSaving || isDeleting}
                     className="w-full accent-pastel-purple-deep disabled:opacity-60"
                   />
                   <div className="flex justify-between text-sm">
@@ -1368,7 +1577,7 @@ export function EntryDetailModal({
                           displayNameFor(a.user_id, members).localeCompare(displayNameFor(b.user_id, members)),
                         )
                         .map((split) => (
-                          <li key={split.user_id} className="flex justify-between gap-2">
+                          <li key={split.user_id} className="flex items-center justify-between gap-2">
                             <span>{displayNameFor(split.user_id, members)}</span>
                             <span className="font-semibold tabular-nums text-ink">
                               {formatCurrency(Number(split.amount))}
@@ -1382,6 +1591,13 @@ export function EntryDetailModal({
             </div>
 
             <div className="flex flex-wrap justify-end gap-2">
+              <MarkPaidButtons
+                canMarkPaid={canMarkPaid}
+                canUndo={canUndoMarkPaid}
+                isLoading={isMarkPaidLoading}
+                onMark={() => onMarkPaid?.()}
+                onUndo={() => onUnmarkPaid?.()}
+              />
               <Button
                 variant="danger"
                 onClick={onDelete}
@@ -1392,10 +1608,16 @@ export function EntryDetailModal({
               </Button>
               <Button
                 onClick={onSave}
-                disabled={!canEdit || isSaving || isDeleting || !descriptionDraft.trim() || parsedAmount <= 0}
+                disabled={
+                  !canEdit
+                  || isSaving
+                  || isDeleting
+                  || !descriptionDraft.trim()
+                  || (canEditStructure && parsedAmount <= 0)
+                }
                 className="h-10 rounded-xl px-4 text-xs"
               >
-                {isSaving ? 'Saving...' : 'Save changes'}
+                {isSaving ? 'Saving...' : entryHasPaidSplits(entry) ? 'Save details' : 'Save changes'}
               </Button>
             </div>
           </div>
@@ -1405,8 +1627,13 @@ export function EntryDetailModal({
   )
 }
 
-export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestConfirm: RequestConfirm) {
+export function useExpenseEntryModal(
+  loadHistory: () => Promise<void>,
+  requestConfirm: RequestConfirm,
+  onBalancesChanged?: () => void,
+) {
   const { addToast } = useToast()
+  const { user } = useAuth()
   const [selectedEntryRef, setSelectedEntryRef] = useState<{ groupId: string; entryId: string } | null>(null)
   const [selectedEntry, setSelectedEntry] = useState<ManualEntryDetail | null>(null)
   const [entryMembers, setEntryMembers] = useState<GroupMember[]>([])
@@ -1414,6 +1641,7 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestCo
   const [isEntryLoading, setIsEntryLoading] = useState(false)
   const [isSavingEntry, setIsSavingEntry] = useState(false)
   const [isDeletingEntry, setIsDeletingEntry] = useState(false)
+  const [isMarkPaidLoading, setIsMarkPaidLoading] = useState(false)
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [amountDraft, setAmountDraft] = useState('')
   const [paidByDraft, setPaidByDraft] = useState('')
@@ -1535,13 +1763,16 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestCo
 
     setIsSavingEntry(true)
     try {
-      await updateEntry(selectedEntryRef.groupId, selectedEntryRef.entryId, {
-        description: descriptionDraft.trim(),
-        total_amount: parsedAmount,
-        split_type: splitModeDraft,
-        paid_by: paidByDraft,
-        splits,
-      })
+      const payload = entryHasPaidSplits(selectedEntry)
+        ? { description: descriptionDraft.trim() }
+        : {
+            description: descriptionDraft.trim(),
+            total_amount: parsedAmount,
+            split_type: splitModeDraft,
+            paid_by: paidByDraft,
+            splits,
+          }
+      await updateEntry(selectedEntryRef.groupId, selectedEntryRef.entryId, payload)
       addToast('success', 'Expense updated')
       await loadHistory()
       closeEntryModal(true)
@@ -1578,6 +1809,56 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestCo
     }
   }
 
+  async function onMarkEntryPaid() {
+    if (!selectedEntryRef) return
+    const payerName = entryMembers.find((m) => m.user_id === selectedEntry?.created_by)?.display_name ?? 'them'
+    const amount = selectedEntry?.my_share_amount ?? ''
+    const confirmed = await requestConfirm({
+      title: 'Mark as paid?',
+      message: `Record that you paid ${payerName} ${formatCurrency(Number(amount))} for ${selectedEntry?.description ?? 'this expense'}?`,
+      confirmLabel: 'Mark as paid',
+    })
+    if (!confirmed) return
+    setIsMarkPaidLoading(true)
+    try {
+      const updated = await markEntryPaid(selectedEntryRef.groupId, selectedEntryRef.entryId)
+      setSelectedEntry(updated)
+      addToast('success', 'Marked as paid')
+      await loadHistory()
+      onBalancesChanged?.()
+    } catch (error) {
+      addToast('error', getErrorMessage(error, 'Unable to mark as paid'))
+    } finally {
+      setIsMarkPaidLoading(false)
+    }
+  }
+
+  async function onUnmarkEntryPaid() {
+    if (!selectedEntryRef) return
+    const confirmed = await requestConfirm({
+      title: 'Undo paid?',
+      message: 'Remove the paid record for your share on this expense?',
+      confirmLabel: 'Undo paid',
+    })
+    if (!confirmed) return
+    setIsMarkPaidLoading(true)
+    try {
+      const updated = await unmarkEntryPaid(selectedEntryRef.groupId, selectedEntryRef.entryId)
+      setSelectedEntry(updated)
+      addToast('success', 'Payment record removed')
+      await loadHistory()
+      onBalancesChanged?.()
+    } catch (error) {
+      addToast('error', getErrorMessage(error, 'Unable to undo paid'))
+    } finally {
+      setIsMarkPaidLoading(false)
+    }
+  }
+
+  const payerDisplayName = selectedEntry
+    ? entryMembers.find((member) => member.user_id === selectedEntry.created_by)?.display_name ?? null
+    : null
+
   return {
     isEntryModalOpen,
     selectedEntry,
@@ -1585,7 +1866,14 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestCo
     isEntryLoading,
     isSavingEntry,
     isDeletingEntry,
+    isMarkPaidLoading,
     canEdit,
+    canMarkPaid: selectedEntry?.can_mark_paid,
+    canUndoMarkPaid: selectedEntry && user
+      ? selectedEntry.splits.some((split) => split.user_id === user.id && split.is_paid === true)
+      : false,
+    myShareAmount: selectedEntry?.my_share_amount,
+    payerDisplayName,
     descriptionDraft,
     amountDraft,
     splitModeDraft,
@@ -1602,19 +1890,23 @@ export function useExpenseEntryModal(loadHistory: () => Promise<void>, requestCo
     closeEntryModal,
     onSaveEntry,
     onDeleteSelectedEntry,
+    onMarkEntryPaid,
+    onUnmarkEntryPaid,
   }
 }
 
 type GroupScopedHistoryProps = {
   groupId: string
   variant: 'page' | 'embedded'
+  onBalancesChanged?: () => void
 }
 
-export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps) {
+export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: GroupScopedHistoryProps) {
   const [filter, setFilter] = useState<(typeof historyFilters)[number]>('all')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
   const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const { user } = useAuth()
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
 
@@ -1633,8 +1925,8 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
     void loadHistory()
   }, [loadHistory])
 
-  const entryModal = useExpenseEntryModal(loadHistory, deleteConfirm.confirm)
-  const receiptModal = useReceiptDetailModal(loadHistory, deleteConfirm.confirm)
+  const entryModal = useExpenseEntryModal(loadHistory, deleteConfirm.confirm, onBalancesChanged)
+  const receiptModal = useReceiptDetailModal(loadHistory, deleteConfirm.confirm, onBalancesChanged)
 
   return (
     <div className="space-y-4">
@@ -1688,6 +1980,7 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
               key={`${item.group_id}-${item.type}-${item.id}`}
               item={item}
               showGroupName={false}
+              currentUserId={user?.id}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
               onReceiptImageClick={(receiptId, imageCount) =>
@@ -1733,6 +2026,11 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         onFirstUserPercentageChange={(value) => entryModal.setFirstUserPercentageDraft(Math.max(1, Math.min(99, value)))}
         onSave={entryModal.onSaveEntry}
         onDelete={entryModal.onDeleteSelectedEntry}
+        canMarkPaid={entryModal.canMarkPaid}
+        canUndoMarkPaid={entryModal.canUndoMarkPaid}
+        isMarkPaidLoading={entryModal.isMarkPaidLoading}
+        onMarkPaid={entryModal.onMarkEntryPaid}
+        onUnmarkPaid={entryModal.onUnmarkEntryPaid}
       />
 
       <ReceiptDetailModal
@@ -1747,6 +2045,13 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
         isLoading={receiptModal.isLoading}
         isSaving={receiptModal.isSaving}
         isDeleting={receiptModal.isDeleting}
+        receiptSplits={receiptModal.receiptSplits}
+        canMarkPaid={receiptModal.canMarkPaid}
+        canUndoMarkPaid={receiptModal.canUndoMarkPaid}
+        hasPaidSplits={receiptModal.hasPaidSplits}
+        isMarkPaidLoading={receiptModal.isMarkPaidLoading}
+        onMarkPaid={receiptModal.onMarkReceiptPaid}
+        onUnmarkPaid={receiptModal.onUnmarkReceiptPaid}
         onClose={receiptModal.closeReceiptModal}
         onNicknameChange={receiptModal.setNickname}
         onMerchantNameChange={receiptModal.setMerchantName}
@@ -1767,7 +2072,7 @@ export function GroupScopedHistory({ groupId, variant }: GroupScopedHistoryProps
       />
       <ConfirmDialog
         {...deleteConfirm.dialogProps}
-        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting}
+        isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting || entryModal.isMarkPaidLoading || receiptModal.isMarkPaidLoading}
       />
     </div>
   )

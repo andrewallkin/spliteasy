@@ -70,7 +70,7 @@ export function AppLayout() {
       <header className="sticky top-0 z-40 w-full border-b border-white/40 glass">
         <div className="mx-auto flex w-full max-w-[768px] items-center gap-2 px-4 py-4 md:px-6 lg:max-w-[1200px] lg:px-8 xl:max-w-[1360px]">
           <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-xl ring-1 ring-ink-faint/15">
-            <img src="/spliteasy-icon.jpeg" alt="" className="h-full w-full object-cover" width={32} height={32} />
+            <img src="/favicon.png" alt="" className="h-full w-full object-cover" width={32} height={32} />
           </div>
           <h1 className="text-lg font-bold text-ink">SplitEasy</h1>
         </div>

@@ -77,3 +77,25 @@ class ReceiptPatchRequest(BaseModel):
     merchant_name: str | None = None
     total_amount: Decimal | None = None
     currency: str | None = None
+
+
+class ReceiptShareLineOut(BaseModel):
+    user_id: uuid.UUID
+    display_name: str
+    amount: Decimal
+    is_paid: bool | None = None
+    paid_at: datetime | None = None
+
+
+class ReceiptShareOut(BaseModel):
+    id: uuid.UUID
+    group_id: uuid.UUID
+    nickname: str | None = None
+    merchant_name: str | None = None
+    total_amount: Decimal | None = None
+    currency: str | None = None
+    paid_by_user_id: uuid.UUID | None = None
+    status: str
+    splits: list[ReceiptShareLineOut]
+    can_mark_paid: bool = False
+    my_share_amount: Decimal | None = None

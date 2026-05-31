@@ -9,6 +9,7 @@ import type {
   ManualEntry,
   OCRLineItem,
   Receipt,
+  ReceiptShareOut,
   Settlement,
   SuggestedSettlement,
 } from '@/types/models'
@@ -123,6 +124,26 @@ export async function updateEntry(groupId: string, entryId: string, payload: unk
 
 export async function deleteEntry(groupId: string, entryId: string) {
   await api.delete(`/groups/${groupId}/entries/${entryId}`)
+}
+
+export async function markEntryPaid(groupId: string, entryId: string) {
+  const response = await api.post<ManualEntryDetail>(`/groups/${groupId}/entries/${entryId}/mark-paid`)
+  return response.data
+}
+
+export async function unmarkEntryPaid(groupId: string, entryId: string) {
+  const response = await api.delete<ManualEntryDetail>(`/groups/${groupId}/entries/${entryId}/mark-paid`)
+  return response.data
+}
+
+export async function markReceiptPaid(groupId: string, receiptId: string) {
+  const response = await api.post<ReceiptShareOut>(`/groups/${groupId}/receipts/${receiptId}/mark-paid`)
+  return response.data
+}
+
+export async function unmarkReceiptPaid(groupId: string, receiptId: string) {
+  const response = await api.delete<ReceiptShareOut>(`/groups/${groupId}/receipts/${receiptId}/mark-paid`)
+  return response.data
 }
 
 export async function createSettlement(groupId: string, payload: unknown) {
