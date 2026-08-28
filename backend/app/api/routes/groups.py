@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import binascii
 import secrets
@@ -33,6 +34,7 @@ from app.schemas.groups import (
 )
 from app.services.balances import compute_group_balances, compute_suggested_settlements
 from app.services.gcs import GCSService, get_gcs_service
+from app.services.receipt_images import signed_urls_for_receipts
 from app.services.mark_paid import (
     build_entry_split_outs,
     build_receipt_share_lines,
@@ -60,6 +62,18 @@ def _make_member_out(member: GroupMember, user: User | None, gcs: GCSService) ->
         role=member.role.value if hasattr(member.role, "value") else str(member.role),
         joined_at=member.joined_at,
     )
+
+
+def _make_group_outs(groups: list[Group], gcs: GCSService) -> list[GroupOut]:
+    return [_make_group_out(group, gcs) for group in groups]
+
+
+def _make_member_outs(
+    rows: list[GroupMember],
+    user_by_id: dict[uuid.UUID, User],
+    gcs: GCSService,
+) -> list[GroupMemberOut]:
+    return [_make_member_out(member, user_by_id.get(member.user_id), gcs) for member in rows]
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -210,7 +224,7 @@ async def create_group(
     db.add(GroupMember(group_id=group.id, user_id=user.id, role="owner"))
     await db.commit()
     await db.refresh(group)
-    return _make_group_out(group, gcs)
+    return await asyncio.to_thread(_make_group_out, group, gcs)
 
 
 @router.get("", response_model=list[GroupOut])
@@ -227,7 +241,7 @@ async def list_groups(
             .order_by(Group.created_at.desc())
         )
     ).all()
-    return [_make_group_out(g, gcs) for g in groups]
+    return await asyncio.to_thread(_make_group_outs, list(groups), gcs)
 
 
 @router.post("/join-by-code")
@@ -278,6 +292,7 @@ async def join_group_by_code(
 async def global_history(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
     type: str | None = None,  # noqa: A002
     group_id: uuid.UUID | None = None,
 ):
@@ -328,6 +343,7 @@ async def global_history(
         receipt_splits_payload = _history_receipt_splits_payload(
             receipts, receipt_share_totals, user_map, paid_map
         )
+        receipt_image_urls = await asyncio.to_thread(signed_urls_for_receipts, list(receipts), gcs)
         items.extend(
             [{
                 "type": "receipt",
@@ -348,6 +364,7 @@ async def global_history(
                         "unknown",
                     ),
                     "image_count": receipt.image_count,
+                    "image_urls": receipt_image_urls.get(receipt.id, []),
                     "splits": receipt_splits_payload.get(receipt.id, []),
                     "can_mark_paid": _history_receipt_flags(
                         receipt,
@@ -443,7 +460,7 @@ async def get_group(
     group = await db.get(Group, group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    return _make_group_out(group, gcs)
+    return await asyncio.to_thread(_make_group_out, group, gcs)
 
 
 @router.patch("/{group_id}", response_model=GroupOut)
@@ -465,7 +482,7 @@ async def update_group(
     group.name = _normalize_group_name(payload.name)
     await db.commit()
     await db.refresh(group)
-    return _make_group_out(group, gcs)
+    return await asyncio.to_thread(_make_group_out, group, gcs)
 
 
 @router.patch("/{group_id}/profile-picture", response_model=GroupOut)
@@ -493,22 +510,26 @@ async def update_group_profile_picture(
             raise HTTPException(status_code=400, detail="Profile picture must be under 10 MB")
         # Delete old GCS object before uploading the new one
         if group.image_gcs_path:
-            gcs.delete_image(group.image_gcs_path)
+            await asyncio.to_thread(gcs.delete_image, group.image_gcs_path)
         settings = get_settings()
-        gcs_path = gcs.upload_image(
-            settings.group_profile_image_folder, f"{group_id}.jpg", decoded, "image/jpeg"
+        gcs_path = await asyncio.to_thread(
+            gcs.upload_image,
+            settings.group_profile_image_folder,
+            f"{group_id}.jpg",
+            decoded,
+            "image/jpeg",
         )
         if gcs_path is None:
             raise HTTPException(status_code=500, detail="Failed to upload group profile picture")
         group.image_gcs_path = gcs_path
     else:
         if group.image_gcs_path:
-            gcs.delete_image(group.image_gcs_path)
+            await asyncio.to_thread(gcs.delete_image, group.image_gcs_path)
         group.image_gcs_path = None
 
     await db.commit()
     await db.refresh(group)
-    return _make_group_out(group, gcs)
+    return await asyncio.to_thread(_make_group_out, group, gcs)
 
 
 @router.delete("/{group_id}", status_code=204)
@@ -545,11 +566,12 @@ async def list_members(
             .order_by(GroupMember.joined_at)
         )
     ).all()
-    result = []
-    for m in rows:
-        u = await db.get(User, m.user_id)
-        result.append(_make_member_out(m, u, gcs))
-    return result
+    user_ids = [m.user_id for m in rows]
+    users = (
+        (await db.scalars(select(User).where(User.id.in_(user_ids)))).all() if user_ids else []
+    )
+    user_by_id = {u.id: u for u in users}
+    return await asyncio.to_thread(_make_member_outs, list(rows), user_by_id, gcs)
 
 
 @router.post("/{group_id}/invite", status_code=201)
@@ -740,6 +762,7 @@ async def history(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
     type: str | None = None,  # noqa: A002
 ):
     await require_group_member(group_id, user, db)
@@ -767,6 +790,7 @@ async def history(
         receipt_splits_payload = _history_receipt_splits_payload(
             receipts, receipt_share_totals, user_map, paid_map
         )
+        receipt_image_urls = await asyncio.to_thread(signed_urls_for_receipts, list(receipts), gcs)
         items.extend(
             [{
                 "type": "receipt",
@@ -784,6 +808,7 @@ async def history(
                     "paid_by_user_id": str(r.paid_by_user_id) if r.paid_by_user_id else None,
                     "paid_by": user_map.get(r.paid_by_user_id or r.uploaded_by, "unknown"),
                     "image_count": r.image_count,
+                    "image_urls": receipt_image_urls.get(r.id, []),
                     "splits": receipt_splits_payload.get(r.id, []),
                     "can_mark_paid": _history_receipt_flags(
                         r,

@@ -38,7 +38,11 @@ function GlobalHistoryPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
-  const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
+  const [imageModal, setImageModal] = useState<{
+    receiptId: string
+    imageCount: number
+    imageUrls?: string[]
+  } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { user } = useAuth()
   const { addToast } = useToast()
@@ -149,8 +153,8 @@ function GlobalHistoryPage() {
               currentUserId={user?.id}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={(receiptId, imageCount) =>
-                setImageModal({ receiptId, imageCount })
+              onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
+                setImageModal({ receiptId, imageCount, imageUrls })
               }
             />
           ))}
@@ -234,6 +238,7 @@ function GlobalHistoryPage() {
         isOpen={imageModal !== null}
         receiptId={imageModal?.receiptId ?? ''}
         imageCount={imageModal?.imageCount ?? 1}
+        imageUrls={imageModal?.imageUrls}
         onClose={() => setImageModal(null)}
       />
       <ConfirmDialog

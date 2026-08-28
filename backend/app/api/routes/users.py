@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import binascii
 
@@ -27,7 +28,7 @@ async def me(
     user: User = Depends(get_current_user),
     gcs: GCSService = Depends(get_gcs_service),
 ):
-    return _make_user_out(user, gcs)
+    return await asyncio.to_thread(_make_user_out, user, gcs)
 
 
 @router.patch("/me", response_model=UserOut)
@@ -52,10 +53,14 @@ async def update_profile(
                 raise HTTPException(status_code=400, detail="Profile picture must be under 10 MB")
             # Delete old GCS object before uploading the new one
             if user.image_gcs_path:
-                gcs.delete_image(user.image_gcs_path)
+                await asyncio.to_thread(gcs.delete_image, user.image_gcs_path)
             settings = get_settings()
-            gcs_path = gcs.upload_image(
-                settings.user_profile_image_folder, f"{user.id}.jpg", decoded, "image/jpeg"
+            gcs_path = await asyncio.to_thread(
+                gcs.upload_image,
+                settings.user_profile_image_folder,
+                f"{user.id}.jpg",
+                decoded,
+                "image/jpeg",
             )
             if gcs_path is None:
                 raise HTTPException(status_code=500, detail="Failed to upload profile picture")
@@ -63,11 +68,11 @@ async def update_profile(
         else:
             # Empty string — remove the picture
             if user.image_gcs_path:
-                gcs.delete_image(user.image_gcs_path)
+                await asyncio.to_thread(gcs.delete_image, user.image_gcs_path)
             user.image_gcs_path = None
     await db.commit()
     await db.refresh(user)
-    return _make_user_out(user, gcs)
+    return await asyncio.to_thread(_make_user_out, user, gcs)
 
 
 @router.post("/me/password", status_code=204)

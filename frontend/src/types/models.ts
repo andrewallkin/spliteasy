@@ -61,6 +61,7 @@ export type Receipt = {
   status: string
   created_at: string
   image_count?: number
+  image_urls?: string[]
 }
 
 export type OCRLineItem = {
@@ -166,6 +167,7 @@ export type GroupHistoryReceiptData = {
   paid_by?: string | null
   /** Number of receipt images stored (multi-page uploads) */
   image_count?: number
+  image_urls?: string[]
   splits?: GroupHistoryEntrySplitLine[]
   can_mark_paid?: boolean
   my_share_amount?: string | null
