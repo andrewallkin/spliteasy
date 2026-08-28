@@ -134,6 +134,10 @@ class GCSService:
             )
             return None
 
+    def generate_signed_urls(self, object_paths: list[str]) -> list[Optional[str]]:
+        """Generate signed URLs for many objects, preserving input order."""
+        return [self.generate_signed_url(path) if path else None for path in object_paths]
+
     def __del__(self) -> None:
         """Clean up the temporary credentials file on destruction."""
         if self._temp_credentials_file and os.path.exists(self._temp_credentials_file):

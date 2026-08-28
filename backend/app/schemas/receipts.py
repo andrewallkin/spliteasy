@@ -46,6 +46,7 @@ class ReceiptOut(BaseModel):
     status: str
     created_at: datetime
     image_count: int = 0
+    image_urls: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

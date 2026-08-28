@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
@@ -25,6 +26,7 @@ from app.schemas.receipts import (
     ReceiptUpdateItemsRequest,
 )
 from app.services.gcs import GCSService, get_gcs_service
+from app.services.receipt_images import signed_urls_for_receipt, signed_urls_for_receipts
 from app.services.mark_paid import (
     build_receipt_share_lines,
     create_receipt_mark_paid,
@@ -41,6 +43,21 @@ router = APIRouter(tags=["receipts"])
 
 def _round(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _make_receipt_out(receipt: Receipt, gcs: GCSService) -> ReceiptOut:
+    urls = signed_urls_for_receipt(receipt, gcs)
+    return ReceiptOut.model_validate(receipt).model_copy(update={"image_urls": urls})
+
+
+def _make_receipt_outs(receipts: list[Receipt], gcs: GCSService) -> list[ReceiptOut]:
+    urls_by_id = signed_urls_for_receipts(receipts, gcs)
+    return [
+        ReceiptOut.model_validate(receipt).model_copy(
+            update={"image_urls": urls_by_id.get(receipt.id, [])}
+        )
+        for receipt in receipts
+    ]
 
 
 def _effective_amount(item_in) -> Decimal:
@@ -139,8 +156,12 @@ async def upload_receipt(
     settings = get_settings()
     gcs_paths: list[str] = []
     for i, jpeg_body in enumerate(jpeg_bodies):
-        gcs_path = gcs.upload_image(
-            settings.receipts_image_folder, f"{receipt_id}_{i}.jpg", jpeg_body, "image/jpeg"
+        gcs_path = await asyncio.to_thread(
+            gcs.upload_image,
+            settings.receipts_image_folder,
+            f"{receipt_id}_{i}.jpg",
+            jpeg_body,
+            "image/jpeg",
         )
         if gcs_path is None:
             raise HTTPException(status_code=500, detail="Failed to upload receipt image")
@@ -187,7 +208,7 @@ async def upload_receipt(
         receipt.ocr_error = str(exc)
     await db.commit()
     await db.refresh(receipt)
-    return ReceiptOut.model_validate(receipt)
+    return await asyncio.to_thread(_make_receipt_out, receipt, gcs)
 
 
 @router.get("/receipts/{receipt_id}", response_model=ReceiptOut)
@@ -195,12 +216,13 @@ async def get_receipt(
     receipt_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
-    return ReceiptOut.model_validate(receipt)
+    return await asyncio.to_thread(_make_receipt_out, receipt, gcs)
 
 
 @router.patch("/receipts/{receipt_id}", response_model=ReceiptOut)
@@ -209,6 +231,7 @@ async def patch_receipt(
     payload: ReceiptPatchRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
@@ -226,7 +249,7 @@ async def patch_receipt(
 
     await db.commit()
     await db.refresh(receipt)
-    return ReceiptOut.model_validate(receipt)
+    return await asyncio.to_thread(_make_receipt_out, receipt, gcs)
 
 
 @router.get("/receipts/{receipt_id}/items", response_model=list[OCRLineItemOut])
@@ -277,6 +300,7 @@ async def update_receipt_items(
     payload: ReceiptUpdateItemsRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
@@ -313,7 +337,7 @@ async def update_receipt_items(
     receipt.version += 1
     await db.commit()
     await db.refresh(receipt)
-    return ReceiptOut.model_validate(receipt)
+    return await asyncio.to_thread(_make_receipt_out, receipt, gcs)
 
 
 @router.post("/receipts/{receipt_id}/assign", response_model=ReceiptOut)
@@ -322,6 +346,7 @@ async def assign_receipt(
     payload: ReceiptAssignRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     receipt = await db.get(Receipt, receipt_id)
     if not receipt:
@@ -395,7 +420,7 @@ async def assign_receipt(
     receipt.version += 1
     await db.commit()
     await db.refresh(receipt)
-    return ReceiptOut.model_validate(receipt)
+    return await asyncio.to_thread(_make_receipt_out, receipt, gcs)
 
 
 @router.delete("/receipts/{receipt_id}", status_code=204)
@@ -410,7 +435,7 @@ async def delete_receipt(
         raise HTTPException(status_code=404, detail="Receipt not found")
     await require_group_member(receipt.group_id, user, db)
     for path in effective_receipt_image_paths(receipt):
-        gcs.delete_image(path)
+        await asyncio.to_thread(gcs.delete_image, path)
     await db.delete(receipt)
     await db.commit()
 
@@ -431,7 +456,7 @@ async def receipt_image(
     paths = effective_receipt_image_paths(receipt)
     if not paths or index >= len(paths):
         raise HTTPException(status_code=404, detail="Receipt image not found")
-    image_bytes = gcs.download_image(paths[index])
+    image_bytes = await asyncio.to_thread(gcs.download_image, paths[index])
     if image_bytes is None:
         raise HTTPException(status_code=404, detail="Receipt image not found")
     return Response(
@@ -447,13 +472,14 @@ async def list_group_receipts(
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    gcs: GCSService = Depends(get_gcs_service),
 ):
     await require_group_member(group_id, user, db)
     query = select(Receipt).where(Receipt.group_id == group_id).order_by(Receipt.created_at.desc())
     if status:
         query = query.where(Receipt.status == status)
     rows = (await db.scalars(query)).all()
-    return [ReceiptOut.model_validate(row) for row in rows]
+    return await asyncio.to_thread(_make_receipt_outs, list(rows), gcs)
 
 
 @router.post("/groups/{group_id}/receipts/{receipt_id}/mark-paid", response_model=ReceiptShareOut)

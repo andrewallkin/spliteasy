@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -82,7 +83,8 @@ async def register(
     )
     await db.commit()
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=_make_user_out(user, gcs))
+    user_out = await asyncio.to_thread(_make_user_out, user, gcs)
+    return AuthResponse(access_token=access_token, user=user_out)
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -116,7 +118,8 @@ async def login(
     )
     await db.commit()
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=_make_user_out(user, gcs))
+    user_out = await asyncio.to_thread(_make_user_out, user, gcs)
+    return AuthResponse(access_token=access_token, user=user_out)
 
 
 @router.post("/refresh", response_model=TokenResponse)

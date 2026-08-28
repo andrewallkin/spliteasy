@@ -229,16 +229,21 @@ type ReceiptImageCarouselHandle = {
 const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
   receiptId: string
   imageCount: number
+  imageUrls?: string[]
   variant: 'thumb' | 'modal'
   enabled?: boolean
 }>(function ReceiptImageCarousel({
   receiptId,
   imageCount,
+  imageUrls,
   variant,
   enabled = true,
 }, ref) {
-  const count = Math.max(1, imageCount)
-  const { blobUrls, isLoading } = useReceiptImageBlobs(receiptId, count, enabled && Boolean(receiptId))
+  const signedUrls = (imageUrls ?? []).filter(Boolean)
+  const shouldFetch = enabled && Boolean(receiptId) && signedUrls.length === 0
+  const { blobUrls, isLoading } = useReceiptImageBlobs(receiptId, imageCount, shouldFetch)
+  const displayUrls = signedUrls.length > 0 ? signedUrls : blobUrls
+  const count = Math.max(1, signedUrls.length || imageCount)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
 
@@ -287,7 +292,7 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
   const canGoPrev = currentIndex > 0
   const canGoNext = currentIndex < count - 1
 
-  if (isLoading || blobUrls.length === 0) {
+  if (isLoading || displayUrls.length === 0) {
     return (
       <div
         className={
@@ -301,7 +306,7 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
     )
   }
 
-  if (count <= 1 || blobUrls.length === 1) {
+  if (count <= 1 || displayUrls.length === 1) {
     return (
       <div
         className={
@@ -311,7 +316,7 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
         }
       >
         <img
-          src={blobUrls[0]}
+          src={displayUrls[0]}
           alt="Receipt"
           className={
             variant === 'thumb'
@@ -335,7 +340,7 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
         }
         style={variant === 'modal' ? { touchAction: 'pan-x' } : undefined}
       >
-        {blobUrls.map((url, i) => (
+        {displayUrls.map((url, i) => (
           <div
             key={i}
             className={
@@ -402,7 +407,7 @@ export function HistoryCard({
   currentUserId?: string
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
-  onReceiptImageClick: (receiptId: string, imageCount: number) => void
+  onReceiptImageClick: (receiptId: string, imageCount: number, imageUrls?: string[]) => void
 }) {
   const badge = typeBadge[item.type] ?? typeBadge.entry
   const data = item.data as Record<string, string | null | undefined>
@@ -481,7 +486,7 @@ export function HistoryCard({
             type="button"
             onClick={(event) => {
               event.stopPropagation()
-              onReceiptImageClick(item.id, receiptImageCount)
+              onReceiptImageClick(item.id, receiptImageCount, receiptData.image_urls)
             }}
             onKeyDown={(event) => event.stopPropagation()}
             className="mt-0.5 shrink-0 touch-pan-x text-left"
@@ -490,6 +495,7 @@ export function HistoryCard({
             <ReceiptImageCarousel
               receiptId={item.id}
               imageCount={receiptImageCount}
+              imageUrls={receiptData.image_urls}
               variant="thumb"
               enabled={isReceipt}
             />
@@ -568,14 +574,16 @@ export function ReceiptImageModal({
   isOpen,
   receiptId,
   imageCount,
+  imageUrls,
   onClose,
 }: {
   isOpen: boolean
   receiptId: string
   imageCount: number
+  imageUrls?: string[]
   onClose: () => void
 }) {
-  const count = Math.max(1, imageCount)
+  const count = Math.max(1, (imageUrls?.length ?? 0) || imageCount)
   const carouselRef = useRef<ReceiptImageCarouselHandle | null>(null)
 
   useEffect(() => {
@@ -619,6 +627,7 @@ export function ReceiptImageModal({
           ref={carouselRef}
           receiptId={receiptId}
           imageCount={count}
+          imageUrls={imageUrls}
           variant="modal"
           enabled={isOpen && Boolean(receiptId)}
         />
@@ -1904,7 +1913,11 @@ type GroupScopedHistoryProps = {
 export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: GroupScopedHistoryProps) {
   const [filter, setFilter] = useState<(typeof historyFilters)[number]>('all')
   const [items, setItems] = useState<GroupHistoryItem[]>([])
-  const [imageModal, setImageModal] = useState<{ receiptId: string; imageCount: number } | null>(null)
+  const [imageModal, setImageModal] = useState<{
+    receiptId: string
+    imageCount: number
+    imageUrls?: string[]
+  } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { user } = useAuth()
   const { addToast } = useToast()
@@ -1983,8 +1996,8 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
               currentUserId={user?.id}
               onEntryClick={entryModal.openEntryModal}
               onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={(receiptId, imageCount) =>
-                setImageModal({ receiptId, imageCount })
+              onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
+                setImageModal({ receiptId, imageCount, imageUrls })
               }
             />
           ))}
@@ -2068,6 +2081,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         isOpen={imageModal !== null}
         receiptId={imageModal?.receiptId ?? ''}
         imageCount={imageModal?.imageCount ?? 1}
+        imageUrls={imageModal?.imageUrls}
         onClose={() => setImageModal(null)}
       />
       <ConfirmDialog
