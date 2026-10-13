@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ${DOCKER_IMAGE_BACKEND}
+    image: andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}
     env_file:
       - .env
     ports:
@@ -20,7 +20,7 @@ services:
     restart: always
 
   frontend:
-    image: ${DOCKER_IMAGE_FRONTEND}
+    image: andrewallkin/spliteasy:${DOCKER_IMAGE_FRONTEND}
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
     depends_on:

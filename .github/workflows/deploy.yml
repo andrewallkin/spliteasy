@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Build and push images
 
 on:
   push:
@@ -7,44 +7,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
-
       - name: Derive image metadata
         id: image_meta
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
         run: |
           set -euo pipefail
 
-          if [ -z "${DOCKERHUB_REPO}" ]; then
-            echo "::error::Missing required secret: DOCKERHUB_REPO"
-            exit 1
-          fi
-
           BRANCH_SLUG="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
           SHORT_SHA="${GITHUB_SHA::12}"
-          IMAGE_REPO="${DOCKERHUB_USERNAME}/${DOCKERHUB_REPO}"
+          IMAGE_REPO="andrewallkin/spliteasy"
 
           BACKEND_IMAGE="${IMAGE_REPO}:backend-${BRANCH_SLUG}-${SHORT_SHA}"
           FRONTEND_IMAGE="${IMAGE_REPO}:frontend-${BRANCH_SLUG}-${SHORT_SHA}"
           BACKEND_BRANCH_LATEST="${IMAGE_REPO}:backend-${BRANCH_SLUG}-latest"
           FRONTEND_BRANCH_LATEST="${IMAGE_REPO}:frontend-${BRANCH_SLUG}-latest"
 
-          echo "branch_slug=${BRANCH_SLUG}" >> "${GITHUB_OUTPUT}"
-          echo "short_sha=${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
           echo "backend_image=${BACKEND_IMAGE}" >> "${GITHUB_OUTPUT}"
           echo "frontend_image=${FRONTEND_IMAGE}" >> "${GITHUB_OUTPUT}"
           echo "backend_branch_latest=${BACKEND_BRANCH_LATEST}" >> "${GITHUB_OUTPUT}"
@@ -76,137 +59,3 @@ jobs:
           tags: |
             ${{ steps.image_meta.outputs.frontend_image }}
             ${{ steps.image_meta.outputs.frontend_branch_latest }}
-
-      - name: Copy production compose file to VPS
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-        run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "mkdir -p /srv/apps/${REPO_NAME}"
-          scp -i ~/.ssh/id_rsa -P ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/srv/apps/${REPO_NAME}/docker-compose.yml
-
-      - name: Deploy to VPS
-        env:
-          REPO_NAME: ${{ github.event.repository.name }}
-          DEPLOY_BRANCH: ${{ github.ref_name }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKER_IMAGE_BACKEND: ${{ steps.image_meta.outputs.backend_image }}
-          DOCKER_IMAGE_FRONTEND: ${{ steps.image_meta.outputs.frontend_image }}
-          # Values for generating .env on the VPS
-          ENV_ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
-          ENV_APP_NAME: ${{ secrets.APP_NAME }}
-          ENV_POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          ENV_POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          ENV_POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          ENV_POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
-          ENV_POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
-          ENV_JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          ENV_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.JWT_ACCESS_TOKEN_EXPIRE_MINUTES }}
-          ENV_JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${{ secrets.JWT_REFRESH_TOKEN_EXPIRE_DAYS }}
-          ENV_CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
-          ENV_COOKIE_SECURE: ${{ secrets.COOKIE_SECURE }}
-          ENV_AUTHORIZED_EMAILS: ${{ secrets.AUTHORIZED_EMAILS }}
-          ENV_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ENV_OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
-          ENV_UPLOADS_DIR: ${{ secrets.UPLOADS_DIR }}
-          ENV_BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
-          ENV_FRONTEND_PORT: ${{ secrets.FRONTEND_PORT }}
-          ENV_DOMAIN: ${{ secrets.DOMAIN }}
-          ENV_GCP_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.GCP_SERVICE_ACCOUNT_CREDENTIALS }}
-          ENV_GCS_IMAGES_BUCKET_NAME: ${{ secrets.GCS_IMAGES_BUCKET_NAME }}
-          ENV_GCS_RECEIPTS_IMAGE_FOLDER: ${{ secrets.GCS_RECEIPTS_IMAGE_FOLDER }}
-          ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_GROUP_PROFILE_IMAGE_FOLDER }}
-          ENV_GCS_USER_PROFILE_IMAGE_FOLDER: ${{ secrets.GCS_USER_PROFILE_IMAGE_FOLDER }}
-        run: |
-          ssh -i ~/.ssh/id_rsa -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no -o ServerAliveInterval=50 -o ServerAliveCountMax=10 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} <<EOF
-          set -euo pipefail
-
-          REPO_NAME="${REPO_NAME}"
-          BRANCH="${DEPLOY_BRANCH}"
-
-          echo "::group::Deployment Setup"
-          echo "Deploying branch: \${BRANCH}"
-          echo "Repository: \${REPO_NAME}"
-          echo "Changing directory to /srv/apps"
-          cd /srv/apps || { echo "Failed to change directory to /srv/apps"; exit 1; }
-          mkdir -p "\${REPO_NAME}" || { echo "Failed to create project directory"; exit 1; }
-          cd "\${REPO_NAME}" || { echo "Failed to change directory to project directory"; exit 1; }
-          echo "::endgroup::"
-
-          echo "::group::Setting up Environment"
-          echo "Creating .env file from CI/CD secrets..."
-          cat > .env << 'EOF_ENV'
-          ENVIRONMENT=${ENV_ENVIRONMENT}
-          APP_NAME=${ENV_APP_NAME}
-
-          POSTGRES_DB=${ENV_POSTGRES_DB}
-          POSTGRES_USER=${ENV_POSTGRES_USER}
-          POSTGRES_PASSWORD=${ENV_POSTGRES_PASSWORD}
-          POSTGRES_HOST=${ENV_POSTGRES_HOST}
-          POSTGRES_PORT=${ENV_POSTGRES_PORT}
-
-          JWT_SECRET_KEY=${ENV_JWT_SECRET_KEY}
-          JWT_ACCESS_TOKEN_EXPIRE_MINUTES=${ENV_JWT_ACCESS_TOKEN_EXPIRE_MINUTES}
-          JWT_REFRESH_TOKEN_EXPIRE_DAYS=${ENV_JWT_REFRESH_TOKEN_EXPIRE_DAYS}
-
-          CORS_ALLOWED_ORIGINS=${ENV_CORS_ALLOWED_ORIGINS}
-          COOKIE_SECURE=${ENV_COOKIE_SECURE}
-
-          AUTHORIZED_EMAILS=${ENV_AUTHORIZED_EMAILS}
-
-          OPENAI_API_KEY=${ENV_OPENAI_API_KEY}
-          OPENAI_MODEL=${ENV_OPENAI_MODEL}
-
-          UPLOADS_DIR=${ENV_UPLOADS_DIR}
-
-          BACKEND_PORT=${ENV_BACKEND_PORT}
-          FRONTEND_PORT=${ENV_FRONTEND_PORT}
-          DOMAIN=${ENV_DOMAIN}
-
-          GCP_SERVICE_ACCOUNT_CREDENTIALS=${ENV_GCP_SERVICE_ACCOUNT_CREDENTIALS}
-          GCS_IMAGES_BUCKET_NAME=${ENV_GCS_IMAGES_BUCKET_NAME}
-          GCS_RECEIPTS_IMAGE_FOLDER=${ENV_GCS_RECEIPTS_IMAGE_FOLDER}
-          GCS_GROUP_PROFILE_IMAGE_FOLDER=${ENV_GCS_GROUP_PROFILE_IMAGE_FOLDER}
-          GCS_USER_PROFILE_IMAGE_FOLDER=${ENV_GCS_USER_PROFILE_IMAGE_FOLDER}
-          DOCKER_IMAGE_BACKEND=${DOCKER_IMAGE_BACKEND}
-          DOCKER_IMAGE_FRONTEND=${DOCKER_IMAGE_FRONTEND}
-          EOF_ENV
-          echo "Environment configured"
-          echo "::endgroup::"
-
-          echo "::group::Docker Hub Login"
-          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin || { echo "::error::Docker login failed"; exit 1; }
-          echo "::endgroup::"
-
-          echo "::group::Cleaning up old containers"
-          docker compose down --remove-orphans 2>&1 || true
-          echo "Cleanup complete"
-          echo "::endgroup::"
-
-          echo "::group::Pulling Docker Images"
-          docker compose pull || { echo "::error::Docker pull failed"; exit 1; }
-          echo "Pull complete"
-          echo "::endgroup::"
-
-          echo "::group::Starting Containers"
-          docker compose up -d --force-recreate || { echo "::error::Failed to start containers"; exit 1; }
-          echo "Waiting for containers to stabilize..."
-          sleep 5
-          echo "Containers started"
-          echo "::endgroup::"
-
-          echo "::group::Running Database Migrations"
-          docker compose exec -T backend bash -c "cd /app && ./run_migrations.sh" || { echo "::error::Database migration failed"; exit 1; }
-          echo "::endgroup::"
-
-          echo "::group::Deployment Status"
-          docker compose ps
-          echo "::endgroup::"
-
-          echo ""
-          echo "========================================"
-          echo "Deployment Complete!"
-          echo "All migrations applied successfully"
-          echo "========================================"
-          EOF
