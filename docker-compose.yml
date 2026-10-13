@@ -1,10 +1,10 @@
 services:
   backend:
-    image: ${DOCKER_IMAGE_BACKEND}
+    image: andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}
     env_file:
       - .env
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
     depends_on: []
@@ -20,9 +20,9 @@ services:
     restart: always
 
   frontend:
-    image: ${DOCKER_IMAGE_FRONTEND}
+    image: andrewallkin/spliteasy:${DOCKER_IMAGE_FRONTEND}
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
     depends_on:
       backend:
         condition: service_healthy

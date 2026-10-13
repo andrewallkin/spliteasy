@@ -391,32 +391,20 @@ Workflow: **`.github/workflows/deploy.yml`**
 
 **Triggers**: push to **`main`**, or **workflow_dispatch**.
 
-**Steps (summary)**:
+The workflow only builds and pushes images to Docker Hub (`andrewallkin/spliteasy`). It does not SSH to a server, write `.env`, or start containers. Deploys happen from the VPS control panel, which writes the image tag into `DOCKER_IMAGE_BACKEND` / `DOCKER_IMAGE_FRONTEND` and runs `docker compose pull`.
 
-1. Checkout; configure SSH key from secrets; add remote host to `known_hosts`.
-2. SSH to the VPS and:
-   - `cd /srv/apps`; derive repo directory name from `github.repository`.
-   - Clone with **`GH_USERNAME`** / **`GH_PAT`** on first run, or fetch/reset to the deploy branch.
-   - Write **`.env`** on the server from injected environment variables (mirrors `.env.example` fields).
-   - **`docker compose down --remove-orphans`**, then **`docker image prune -a -f`** and **`docker builder prune -a -f`** (see caveat below).
-   - **`docker compose build`**, **`docker compose up -d --force-recreate`**.
-   - **`docker compose exec -T backend bash -c "cd /app && ./run_migrations.sh"`**.
+Tags for a `main` commit `abc123def456` are:
 
-**GitHub Actions secrets** (consumed in the workflow or SSH script):
+- `andrewallkin/spliteasy:backend-main-abc123def456`
+- `andrewallkin/spliteasy:frontend-main-abc123def456`
+
+Compose publishes those as `andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}` and `andrewallkin/spliteasy:${DOCKER_IMAGE_FRONTEND}`. Host ports bind to `127.0.0.1` using `BACKEND_PORT` and `FRONTEND_PORT`.
+
+**GitHub Actions secrets**:
 
 | Secret | Role |
 | --- | --- |
-| `VPS_SSH_KEY`, `VPS_HOST`, `VPS_PORT`, `VPS_USER` | SSH access to the server. |
-| `GH_USERNAME`, `GH_PAT` | HTTPS git clone/fetch from GitHub on the VPS. |
-| `ENVIRONMENT`, `APP_NAME` | App metadata. |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` | Database connection written to `.env`. |
-| `JWT_SECRET_KEY`, `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | JWT configuration. |
-| `CORS_ALLOWED_ORIGINS`, `COOKIE_SECURE` | Browser integration. |
-| `AUTHORIZED_EMAILS` | Optional email allowlist (may be empty). |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | OCR. |
-| `UPLOADS_DIR`, `BACKEND_PORT`, `FRONTEND_PORT`, `DOMAIN` | Paths and ports on the VPS. |
-
-**Operational caveat**: The workflow runs **global** `docker image prune` and **`docker builder prune`** on the VPS. That can remove unused images and build cache **for all projects on the host**, not only this repository. Review before relying on this in shared hosting environments.
+| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | Push images to Docker Hub. |
 
 ---
 
