@@ -93,7 +93,7 @@ flowchart LR
 | `docker-compose.yml` | Production-style app containers |
 | `.env.example` | Environment template |
 | `Makefile` | Common dev commands |
-| `.github/workflows/deploy.yml` | VPS deploy pipeline |
+| `.github/workflows/deploy.yml` | Backend tests and Docker Hub image push |
 
 Host directory **`./data`** is mounted at **`/app/data`** in both compose files for file-backed data alongside configurable `UPLOADS_DIR`.
 
@@ -196,7 +196,7 @@ uv run alembic current
 uv run alembic revision --autogenerate -m "describe change"   # when applicable
 ```
 
-**Production-style migrations**: `backend/run_migrations.sh` loops until `alembic current` succeeds, prints status, runs `alembic upgrade head`, and prints the final revision. The GitHub deploy workflow invokes this inside the backend container.
+**Production migrations**: GitHub Actions does not migrate. The VPS control panel runs the command on the `backend` service before containers switch, and again from **Run migrations**. Set the project migration service to `backend` and the command to `bash /app/run_migrations.sh`. That script waits until the database answers, then runs `alembic upgrade head`. `alembic` is also on the image `PATH`, so `alembic upgrade head` works as a shorter command.
 
 ---
 
@@ -391,7 +391,7 @@ Workflow: **`.github/workflows/deploy.yml`**
 
 **Triggers**: push to **`main`**, or **workflow_dispatch**.
 
-The workflow only builds and pushes images to Docker Hub (`andrewallkin/spliteasy`). It does not SSH to a server, write `.env`, or start containers. Deploys happen from the VPS control panel, which writes the image tag into `DOCKER_IMAGE_BACKEND` / `DOCKER_IMAGE_FRONTEND` and runs `docker compose pull`.
+A **test** job runs the backend pytest suite. The **build** job runs only after that passes. It pushes images to Docker Hub (`andrewallkin/spliteasy`). It does not SSH to a server, write `.env`, start containers, or run migrations. Deploys happen from the VPS control panel, which writes the image tag into `DOCKER_IMAGE_BACKEND` / `DOCKER_IMAGE_FRONTEND`, runs `docker compose pull`, and runs the project's migration command.
 
 Tags for a `main` commit `abc123def456` are:
 

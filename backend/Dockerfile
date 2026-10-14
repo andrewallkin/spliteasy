@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock /app/
 COPY app /app/app
 RUN uv sync --frozen --no-dev
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
