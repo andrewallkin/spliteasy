@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Backend tests
+        working-directory: backend
+        env:
+          APP_NAME: SplitEasy API
+          ENVIRONMENT: test
+          POSTGRES_DB: splitwise
+          POSTGRES_USER: splitwise
+          POSTGRES_PASSWORD: splitwise
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: "5432"
+          JWT_SECRET_KEY: test-secret-test-secret-test-secret
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+          JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+          CORS_ALLOWED_ORIGINS: http://localhost:3000
+          COOKIE_SECURE: "false"
+          OPENAI_API_KEY: test
+          OPENAI_MODEL: gpt-4o
+          UPLOADS_DIR: /tmp/spliteasy-uploads
+        run: |
+          uv sync --frozen --extra dev
+          uv run pytest
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript check
+        run: npm run type-check
