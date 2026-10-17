@@ -271,8 +271,14 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
     goNext: () => jumpToIndex(currentIndex + 1),
   }), [currentIndex, jumpToIndex])
 
-  useEffect(() => {
+  const resetKey = `${receiptId ?? ''}-${count}-${variant}`
+  const [prevResetKey, setPrevResetKey] = useState(resetKey)
+  if (prevResetKey !== resetKey) {
+    setPrevResetKey(resetKey)
     setCurrentIndex(0)
+  }
+
+  useEffect(() => {
     const el = scrollRef.current
     if (el) {
       el.scrollTo({
@@ -280,7 +286,7 @@ const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
         behavior: 'auto',
       })
     }
-  }, [receiptId, count, variant])
+  }, [resetKey])
 
   const thumbBox = 'relative h-16 w-16 overflow-hidden rounded-xl bg-surface-secondary'
   const caption =
