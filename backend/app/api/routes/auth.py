@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.config import get_settings
 from app.core.security import create_token, decode_token, get_password_hash, verify_password
-from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.group import RefreshToken
 from app.models.user import User
@@ -24,14 +24,14 @@ def _make_user_out(user: User, gcs: GCSService) -> UserOut:
     url = gcs.generate_signed_url(user.image_gcs_path) if user.image_gcs_path else None
     return UserOut.model_validate(user).model_copy(update={"profile_picture": url})
 
-EMAIL_NOT_ALLOWED_DETAIL = "This email is not allowed to use this application."
+USER_NOT_ALLOWED_DETAIL = "This email is not allowed to use this application."
 
 
-def _require_allowed_email(normalized_email: str) -> None:
-    allowed = settings.allowed_email_set
+def _require_allowed_user(normalized_email: str) -> None:
+    allowed = settings.authorized_users_set
     if not allowed or normalized_email in allowed:
         return
-    raise HTTPException(status_code=403, detail=EMAIL_NOT_ALLOWED_DETAIL)
+    raise HTTPException(status_code=403, detail=USER_NOT_ALLOWED_DETAIL)
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -54,7 +54,7 @@ async def register(
     gcs: GCSService = Depends(get_gcs_service),
 ):
     normalized_email = payload.email.strip().lower()
-    _require_allowed_email(normalized_email)
+    _require_allowed_user(normalized_email)
     existing_email = await db.scalar(select(User).where(User.email == normalized_email))
     if existing_email:
         raise HTTPException(status_code=409, detail="Email already taken")
@@ -95,7 +95,7 @@ async def login(
     gcs: GCSService = Depends(get_gcs_service),
 ):
     normalized_email = payload.email.strip().lower()
-    _require_allowed_email(normalized_email)
+    _require_allowed_user(normalized_email)
     user = await db.scalar(select(User).where(User.email == normalized_email))
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")

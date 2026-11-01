@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 
-from app.core.settings import get_settings
+from app.config import get_settings
 from app.schemas.ocr import (
     SYSTEM_PROMPT,
     USER_PROMPT,

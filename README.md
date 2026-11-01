@@ -95,7 +95,7 @@ flowchart LR
 | `Makefile` | Common dev commands |
 | `.github/workflows/deploy.yml` | Backend tests and Docker Hub image push |
 
-Host directory **`./data`** is mounted at **`/app/data`** in both compose files for file-backed data alongside configurable `UPLOADS_DIR`.
+Host directory **`./data`** is mounted at **`/app/data`** in both compose files for file-backed data.
 
 ---
 
@@ -108,27 +108,20 @@ Host directory **`./data`** is mounted at **`/app/data`** in both compose files 
 
 ## Environment variables
 
-Configuration is loaded from **`.env`** in the backend working directory (`backend/app/core/settings.py` uses `env_file=".env"`). Keys in `.env` use **SCREAMING_SNAKE_CASE**; the settings class maps them to **snake_case** fields (e.g. `POSTGRES_DB` → `postgres_db`).
+Configuration is loaded by **pydantic-settings** from **`.env`** in the backend working directory (`backend/app/config.py` uses `env_file=".env"`). Keys in `.env` use **SCREAMING_SNAKE_CASE**; the settings class maps them to **snake_case** fields (e.g. `POSTGRES_DB` → `postgres_db`).
+
+**The single source of truth for environment variables is [`.env.example`](.env.example)** — it lists every supported variable, grouped into sections (`Application`, `Database`, `Auth`, `CORS`, `OpenAI`, `Google Cloud Storage`, `Compose / operator`), with comments explaining each.
+
+Quick reference for the most operational ones:
 
 | Variable | Purpose |
 | --- | --- |
-| `ENVIRONMENT` | Logical environment name (e.g. `development`, `production`). |
-| `APP_NAME` | FastAPI title string. |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT` | Async PostgreSQL URL pieces (`postgresql+asyncpg://...`). |
 | `JWT_SECRET_KEY` | Secret for signing JWT access and refresh tokens. Use a long random value in production. |
-| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | Short-lived access token TTL. |
-| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | Refresh token TTL (cookie max-age aligned in auth routes). |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origins allowed by CORS (no spaces required; values are trimmed). Must include the exact origin users type in the address bar (scheme + host + port). |
+| `CORS_ORIGINS` | Comma-separated browser origins allowed by CORS (no spaces required; values are trimmed). Must include the exact origin users type in the address bar (scheme + host + port). |
 | `COOKIE_SECURE` | If `true`, refresh cookie is **Secure** (HTTPS only). Set `true` in production behind TLS. |
-| `AUTHORIZED_EMAILS` | Optional comma-separated allowlist for **register** and **login**. If empty, any email is allowed. If set, only listed emails (case-insensitive) may authenticate. |
-| `OPENAI_API_KEY` | Required for receipt OCR. |
-| `OPENAI_MODEL` | Model id passed to the OpenAI client (default `gpt-4o` in `.env.example`). |
-| `UPLOADS_DIR` | Filesystem path where the backend stores uploads; created on startup. In Docker, align with bind mounts (e.g. `/app/data` if that is where you persist files). |
-| `BACKEND_PORT` | Host port published for the backend (compose). |
-| `FRONTEND_PORT` | Host port published for the frontend (compose). |
-| `DOMAIN` | Documented in templates for operators; wire to your reverse proxy and `CORS_ALLOWED_ORIGINS`. |
+| `AUTHORIZED_USERS` | Optional comma-separated allowlist for **register** and **login**. If empty, any email is allowed. If set, only listed emails (case-insensitive) may authenticate. |
 
-**CORS and cookies**: The browser sends the refresh cookie on requests whose URL path matches the cookie path **`/api/auth`**. Access tokens are sent manually via the **`Authorization`** header (`Bearer` plus JWT; see `frontend/src/api/client.ts`). For cross-origin setups, origins must be listed in `CORS_ALLOWED_ORIGINS`, and `COOKIE_SECURE` / `SameSite` behavior must match your deployment (see auth section).
+**CORS and cookies**: The browser sends the refresh cookie on requests whose URL path matches the cookie path **`/api/auth`**. Access tokens are sent manually via the **`Authorization`** header (`Bearer` plus JWT; see `frontend/src/api/client.ts`). For cross-origin setups, origins must be listed in `CORS_ORIGINS`, and `COOKIE_SECURE` / `SameSite` behavior must match your deployment (see auth section).
 
 ---
 
@@ -152,7 +145,7 @@ Configuration is loaded from **`.env`** in the backend working directory (`backe
    ```
 
 4. Open the app:
-   - Frontend: `http://localhost:3000` (or `http://127.0.0.1:3000` if you use that origin—ensure it appears in `CORS_ALLOWED_ORIGINS`).
+   - Frontend: `http://localhost:3000` (or `http://127.0.0.1:3000` if you use that origin—ensure it appears in `CORS_ORIGINS`).
    - API docs: `http://localhost:8000/docs`.
 
 ### Optional: install dependencies on the host
@@ -345,7 +338,7 @@ Additional Vite-specific notes may appear in `frontend/README.md`.
 
 - Declare an **external** network named **`postgres-net`** on the host (`docker network create postgres-net` once), and attach your PostgreSQL container to it so the backend can resolve `POSTGRES_HOST`.
 - Services: **backend** and **frontend** only; backend publishes **`BACKEND_PORT`**, frontend publishes **`FRONTEND_PORT`** → container **80**.
-- Bind mount **`./data:/app/data`** for durable files; set **`UPLOADS_DIR`** inside the container to a path under that mount if you want uploads on disk to survive restarts.
+- Bind mount **`./data:/app/data`** for durable file-backed data.
 
 **Reverse proxy (example shape only)**
 
@@ -374,7 +367,7 @@ server {
 }
 ```
 
-Use your real **`FRONTEND_PORT`** / **`BACKEND_PORT`** bindings instead of `8000`/`3000` if they differ. Set **`CORS_ALLOWED_ORIGINS`** to your public **`https://your.domain`** origin and **`COOKIE_SECURE=true`** when serving over HTTPS.
+Use your real **`FRONTEND_PORT`** / **`BACKEND_PORT`** bindings instead of `8000`/`3000` if they differ. Set **`CORS_ORIGINS`** to your public **`https://your.domain`** origin and **`COOKIE_SECURE=true`** when serving over HTTPS.
 
 **Security checklist**
 
@@ -421,11 +414,11 @@ Compose publishes those as `andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}` and 
 | Symptom | Things to check |
 | --- | --- |
 | `401` / “Missing credentials” on API | Access token missing from `Authorization` header; user logged out or storage cleared. |
-| Endless auth failures after deploy | **`CORS_ALLOWED_ORIGINS`** must match the site origin; **`COOKIE_SECURE`** must be `false` on plain HTTP and `true` on HTTPS. |
+| Endless auth failures after deploy | **`CORS_ORIGINS`** must match the site origin; **`COOKIE_SECURE`** must be `false` on plain HTTP and `true` on HTTPS. |
 | Refresh never succeeds | Cookie path is `/api/auth`; ensure requests go to the same site and path prefix the proxy forwards correctly. |
 | Tables missing / 500 on first run | Run **`alembic upgrade head`** (or `make migrate` in dev). |
 | Production backend cannot reach Postgres | **`postgres-net`** must exist and both DB and backend containers must attach to it; **`POSTGRES_HOST`** must be the DB service name on that network. |
-| OCR or upload errors | Valid **`OPENAI_API_KEY`**, model id, network egress from the backend container, and sufficient disk under **`UPLOADS_DIR`**. |
+| OCR or upload errors | Valid **`OPENAI_API_KEY`**, model id, network egress from the backend container, and correct GCS settings (**`GCP_SERVICE_ACCOUNT_CREDENTIALS`**, **`GCS_IMAGES_BUCKET_NAME`**). |
 | Join or invite fails with “Group already full” | MVP limit of **two members** per group. |
 
 ---

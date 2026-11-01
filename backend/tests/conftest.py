@@ -1,0 +1,16 @@
+import os
+
+os.environ.setdefault("APP_NAME", "SplitEasy API")
+os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("POSTGRES_DB", "splitwise")
+os.environ.setdefault("POSTGRES_USER", "splitwise")
+os.environ.setdefault("POSTGRES_PASSWORD", "splitwise")
+os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_PORT", "5432")
+os.environ.setdefault("JWT_SECRET_KEY", "test-secret-test-secret-test-secret")
+os.environ.setdefault("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "15")
+os.environ.setdefault("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7")
+os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000")
+os.environ.setdefault("COOKIE_SECURE", "false")
+os.environ.setdefault("OPENAI_API_KEY", "test")
+os.environ.setdefault("OPENAI_MODEL", "gpt-4o")

@@ -17,14 +17,16 @@ class Settings(BaseSettings):
     postgres_host: str
     postgres_port: int
 
-    cors_allowed_origins: str
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        validation_alias=AliasChoices("CORS_ORIGINS", "CORS_ALLOWED_ORIGINS"),
+    )
 
     jwt_secret_key: str
     jwt_access_token_expire_minutes: int
     jwt_refresh_token_expire_days: int
     cookie_secure: bool
 
-    uploads_dir: str
     openai_api_key: str
     openai_model: str
 
@@ -45,7 +47,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GCS_USER_PROFILE_IMAGE_FOLDER", "USER_PROFILE_IMAGE_FOLDER"),
     )
 
-    authorized_emails: str = ""
+    authorized_users: str = Field(
+        default="", validation_alias=AliasChoices("AUTHORIZED_USERS", "AUTHORIZED_EMAILS")
+    )
 
     @property
     def database_url(self) -> str:
@@ -57,15 +61,15 @@ class Settings(BaseSettings):
         )
 
     @property
-    def cors_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
-    def allowed_email_set(self) -> frozenset[str]:
+    def authorized_users_set(self) -> frozenset[str]:
         return frozenset(
-            email.strip().lower()
-            for email in self.authorized_emails.split(",")
-            if email.strip()
+            user.strip().lower()
+            for user in self.authorized_users.split(",")
+            if user.strip()
         )
 
 
