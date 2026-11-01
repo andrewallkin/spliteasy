@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_group_member
-from app.core.settings import get_settings
+from app.config import get_settings
 from app.db.session import get_db
 from app.models.enums import GroupRole
 from app.models.group import Group, GroupBalance, GroupInvitation
@@ -34,7 +34,6 @@ from app.schemas.groups import (
 )
 from app.services.balances import compute_group_balances, compute_suggested_settlements
 from app.services.gcs import GCSService, get_gcs_service
-from app.services.receipt_images import signed_urls_for_receipts
 from app.services.mark_paid import (
     build_entry_split_outs,
     build_receipt_share_lines,
@@ -42,6 +41,7 @@ from app.services.mark_paid import (
     get_paid_map,
     receipt_mark_paid_flags,
 )
+from app.services.receipt_images import signed_urls_for_receipts
 
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_GROUP_PICTURE_BYTES = 10 * 1024 * 1024

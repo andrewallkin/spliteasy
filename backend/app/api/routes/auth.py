@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.config import get_settings
 from app.core.security import create_token, decode_token, get_password_hash, verify_password
-from app.core.settings import get_settings
 from app.db.session import get_db
 from app.models.group import RefreshToken
 from app.models.user import User
@@ -28,7 +28,7 @@ EMAIL_NOT_ALLOWED_DETAIL = "This email is not allowed to use this application."
 
 
 def _require_allowed_email(normalized_email: str) -> None:
-    allowed = settings.allowed_email_set
+    allowed = settings.authorized_users_set
     if not allowed or normalized_email in allowed:
         return
     raise HTTPException(status_code=403, detail=EMAIL_NOT_ALLOWED_DETAIL)

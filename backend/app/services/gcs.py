@@ -3,13 +3,14 @@
 import base64
 import json
 import logging
-import os
-import tempfile
 from datetime import timedelta
 from io import BytesIO
 from typing import Optional
 
 from google.cloud import storage
+from google.oauth2 import service_account
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,32 +22,34 @@ class GCSService:
 
     def __init__(self) -> None:
         self.client: Optional[storage.Client] = None
-        self.bucket_name: Optional[str] = os.getenv("GCS_IMAGES_BUCKET_NAME")
-        self._temp_credentials_file: Optional[str] = None
+        self.bucket_name: Optional[str] = None
         self._initialize_service()
 
     def _initialize_service(self) -> None:
         """Initialize the GCS client using base64-encoded service account credentials."""
-        credentials_b64 = os.getenv("GCP_SERVICE_ACCOUNT_CREDENTIALS")
-        if not credentials_b64:
+        settings = get_settings()
+        if not settings.gcp_service_account_credentials:
             logger.warning("GCP_SERVICE_ACCOUNT_CREDENTIALS environment variable not set")
             return
         try:
-            credentials_json = base64.b64decode(credentials_b64).decode("utf-8")
+            credentials_json = base64.b64decode(
+                settings.gcp_service_account_credentials
+            ).decode("utf-8")
             credentials_dict = json.loads(credentials_json)
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(credentials_dict, f)
-                self._temp_credentials_file = f.name
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self._temp_credentials_file
-            self.client = storage.Client()
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_dict
+            )
+            self.client = storage.Client(credentials=credentials)
+            self.bucket_name = settings.gcs_images_bucket_name or None
             logger.info("GCS service initialized", extra={"bucket": self.bucket_name})
         except Exception as e:
             logger.exception("GCS initialization failed: %s: %s", type(e).__name__, e)
             self.client = None
+            self.bucket_name = None
 
     def is_available(self) -> bool:
         """Check if the GCS service is available."""
-        return self.client is not None and self.bucket_name is not None
+        return self.client is not None and bool(self.bucket_name)
 
     def upload_image(
         self, folder: str, object_name: str, data: bytes, content_type: str
@@ -137,18 +140,6 @@ class GCSService:
     def generate_signed_urls(self, object_paths: list[str]) -> list[Optional[str]]:
         """Generate signed URLs for many objects, preserving input order."""
         return [self.generate_signed_url(path) if path else None for path in object_paths]
-
-    def __del__(self) -> None:
-        """Clean up the temporary credentials file on destruction."""
-        if self._temp_credentials_file and os.path.exists(self._temp_credentials_file):
-            try:
-                os.unlink(self._temp_credentials_file)
-                if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") == self._temp_credentials_file:
-                    del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-            except Exception as e:
-                logger.warning(
-                    "Failed to delete temp credentials file: %s: %s", type(e).__name__, e
-                )
 
 
 def get_gcs_service() -> GCSService:

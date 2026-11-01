@@ -23,7 +23,7 @@ from sqlalchemy.orm import sessionmaker
 # Allow running from the backend directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.settings import get_settings  # noqa: E402
+from app.config import get_settings  # noqa: E402
 from app.services.gcs import GCSService  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

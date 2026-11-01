@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_group_member
-from app.core.settings import get_settings
+from app.config import get_settings
 from app.db.session import get_db
 from app.models.enums import ShareType
 from app.models.group_member import GroupMember
@@ -26,7 +26,6 @@ from app.schemas.receipts import (
     ReceiptUpdateItemsRequest,
 )
 from app.services.gcs import GCSService, get_gcs_service
-from app.services.receipt_images import signed_urls_for_receipt, signed_urls_for_receipts
 from app.services.mark_paid import (
     build_receipt_share_lines,
     create_receipt_mark_paid,
@@ -37,6 +36,7 @@ from app.services.mark_paid import (
     receipt_mark_paid_flags,
 )
 from app.services.ocr import extract_receipt_items, image_bytes_to_jpeg_bytes
+from app.services.receipt_images import signed_urls_for_receipt, signed_urls_for_receipts
 
 router = APIRouter(tags=["receipts"])
 

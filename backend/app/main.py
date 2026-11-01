@@ -1,12 +1,11 @@
 import logging
-import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
-from app.core.settings import get_settings
+from app.config import get_settings
 
 settings = get_settings()
 logging.basicConfig(level=logging.INFO)
@@ -15,16 +14,11 @@ app = FastAPI(title=settings.app_name)
 app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    os.makedirs(settings.uploads_dir, exist_ok=True)
 
 
 @app.exception_handler(Exception)
