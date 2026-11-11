@@ -1,13 +1,21 @@
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { createManualEntry, getGroupMembers } from '@/api/groups'
+import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Field } from '@/components/ui/Field'
+import { UsersIcon } from '@/components/ui/icons'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { PageContent, PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
+import { Select } from '@/components/ui/Select'
+import { StickyFooter } from '@/components/ui/StickyFooter'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
+import { groupTheme } from '@/lib/theme'
 import type { GroupMember } from '@/types/models'
 import { formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
@@ -15,11 +23,14 @@ import { getErrorMessage } from '@/utils/errors'
 type SplitMode = 'equal' | 'full' | 'percentage'
 type MultiSplitMode = 'equal' | 'custom'
 
+const MANUAL_ENTRY_FORM_ID = 'manual-entry-form'
+
 export function ManualEntryPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
   const { addToast } = useToast()
+  const theme = groupTheme(id)
 
   const [members, setMembers] = useState<GroupMember[]>([])
   const [membersLoading, setMembersLoading] = useState(true)
@@ -128,6 +139,11 @@ export function ManualEntryPage() {
     }
   }
 
+  function onFormSubmit(event: FormEvent) {
+    event.preventDefault()
+    void onSubmit()
+  }
+
   if (membersLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -138,22 +154,26 @@ export function ManualEntryPage() {
 
   if (members.length < 2) {
     return (
-      <Card className="space-y-4 text-center">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pastel-lavender/30">
-          <svg className="h-7 w-7 text-pastel-purple" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-          </svg>
-        </div>
-        <h2 className="text-lg font-bold text-ink">Not enough members</h2>
-        <p className="text-sm text-ink-secondary">
-          Invite someone to this group before adding expenses.
-        </p>
-        <Button onClick={() => navigate(`/groups/${id}`)}>Back to group</Button>
-      </Card>
+      <>
+        <PageHeader theme={theme} back={`/groups/${id}`} title="New expense" />
+        <PageContent>
+          <EmptyState
+            icon={<UsersIcon className="h-8 w-8" />}
+            title="Not enough members"
+            description="Invite someone to this group before adding expenses."
+            action={
+              <Button size="lg" className="w-full" onClick={() => navigate(`/groups/${id}`)}>
+                Back to group
+              </Button>
+            }
+          />
+        </PageContent>
+      </>
     )
   }
 
   const parsedAmount = Number(amount) || 0
+  const saveDisabled = isSubmitting || parsedAmount <= 0 || !description.trim()
 
   // --- 3+ user UI ---
   if (isMultiUser) {
@@ -161,102 +181,97 @@ export function ManualEntryPage() {
     const perPerson = splitCount > 0 ? parsedAmount / splitCount : 0
 
     return (
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-xl font-bold text-ink">Add Expense</h2>
-          <p className="mt-0.5 text-sm text-ink-secondary">Split a cost with the group</p>
-        </div>
-
-        <Card className="space-y-5">
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-ink">Amount</label>
-            <Input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-semibold text-ink">Description</label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={200}
-              placeholder="What was it for?"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-ink">Who paid?</label>
-            <select
-              value={paidByUserId}
-              onChange={(e) => setPaidByUserId(e.target.value)}
-              className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2.5 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
-            >
-              {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {m.display_name}{m.user_id === user?.id ? ' (you)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-ink">How to split?</label>
-            <div className="grid grid-cols-2 gap-2">
-              {([
-                { key: 'equal' as const, label: 'Equal' },
-                { key: 'custom' as const, label: 'Custom' },
-              ]).map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setMultiSplitMode(key)
-                    if (key === 'custom') {
-                      setSelectedMembers(new Set(members.map((m) => m.user_id)))
-                    }
-                  }}
-                  className={`rounded-2xl border-2 px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                    multiSplitMode === key
-                      ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                      : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {multiSplitMode === 'custom' && (
+      <>
+        <PageHeader theme={theme} back={`/groups/${id}`} title="New expense" />
+        <PageContent className="pb-4">
+          <form id={MANUAL_ENTRY_FORM_ID} className="space-y-4" onSubmit={onFormSubmit}>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-ink">Split between</label>
-              <div className="flex flex-wrap gap-2">
-                {members.map((m) => (
-                  <button
-                    key={m.user_id}
-                    type="button"
-                    onClick={() => toggleMember(m.user_id)}
-                    className={`rounded-2xl border-2 px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-                      selectedMembers.has(m.user_id)
-                        ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                        : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
-                    }`}
-                  >
-                    {m.display_name}{m.user_id === user?.id ? ' (you)' : ''}
-                  </button>
-                ))}
-              </div>
+              <Field label="Amount" htmlFor="manual-amount">
+                <Input
+                  id="manual-amount"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  className="h-16 text-center text-4xl font-extrabold tabular-nums"
+                />
+              </Field>
             </div>
-          )}
 
-          {parsedAmount > 0 && (
-            <div className="rounded-2xl bg-surface-secondary p-4">
-              <p className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">Split preview</p>
-              <div className="mt-2 space-y-1">
+            <Field label="Description" htmlFor="manual-description">
+              <Input
+                id="manual-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={200}
+                placeholder="What was it for?"
+              />
+            </Field>
+
+            <Field label="Who paid?" htmlFor="manual-paid-by">
+              <Select
+                id="manual-paid-by"
+                value={paidByUserId}
+                onChange={(e) => setPaidByUserId(e.target.value)}
+              >
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.display_name}{m.user_id === user?.id ? ' (you)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="How to split?">
+              <SegmentedControl
+                value={multiSplitMode}
+                onChange={(key) => {
+                  setMultiSplitMode(key)
+                  if (key === 'custom') {
+                    setSelectedMembers(new Set(members.map((m) => m.user_id)))
+                  }
+                }}
+                options={[
+                  { value: 'equal', label: 'Equal' },
+                  { value: 'custom', label: 'Custom' },
+                ]}
+                aria-label="How to split"
+              />
+            </Field>
+
+            {multiSplitMode === 'custom' && (
+              <Field label="Split between">
+                <div className="flex flex-wrap gap-1.5">
+                  {members.map((m) => {
+                    const active = selectedMembers.has(m.user_id)
+                    return (
+                      <button
+                        key={m.user_id}
+                        type="button"
+                        onClick={() => toggleMember(m.user_id)}
+                        className={`flex min-h-[44px] items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1.5 text-xs font-bold transition ${
+                          active
+                            ? 'border-violet-400 bg-violet-50 text-violet-700'
+                            : 'border-line bg-white text-ink-secondary'
+                        }`}
+                      >
+                        <Avatar
+                          name={m.display_name}
+                          src={m.profile_picture}
+                          colorKey={m.user_id}
+                          size="xs"
+                        />
+                        {m.display_name}{m.user_id === user?.id ? ' (you)' : ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </Field>
+            )}
+
+            {parsedAmount > 0 && (
+              <div className={`space-y-1 rounded-3xl border-[1.5px] p-4 ${theme.soft} ${theme.softBorder}`}>
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">Split preview</p>
                 {multiSplitMode === 'equal' ? (
                   <p className="text-sm text-ink-secondary">
                     <span className="font-semibold text-ink">{formatCurrency(perPerson)}</span> each ({members.length} people)
@@ -279,127 +294,136 @@ export function ManualEntryPage() {
                   </>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </form>
+        </PageContent>
 
+        <StickyFooter>
           <Button
-            onClick={onSubmit}
+            type="submit"
+            form={MANUAL_ENTRY_FORM_ID}
+            variant="accent"
+            theme={theme}
+            size="lg"
             className="w-full"
-            disabled={isSubmitting || parsedAmount <= 0 || !description.trim()}
+            disabled={saveDisabled}
           >
             {isSubmitting ? 'Saving...' : 'Save Expense'}
           </Button>
-        </Card>
-      </div>
+        </StickyFooter>
+      </>
     )
   }
 
-  // --- 2-user UI (unchanged) ---
+  // --- 2-user UI ---
+  const me = members.find((m) => m.user_id === user?.id)
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-ink">Add Expense</h2>
-        <p className="mt-0.5 text-sm text-ink-secondary">Split a cost with {partner!.display_name}</p>
-      </div>
-
-      <Card className="space-y-5">
-        <div>
-          <label className="mb-1.5 block text-sm font-semibold text-ink">Amount</label>
-          <Input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            inputMode="decimal"
-            placeholder="0.00"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-sm font-semibold text-ink">Description</label>
-          <Input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={200}
-            placeholder="What was it for?"
-          />
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-ink">Who paid?</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setPaidBySelf(true)}
-              className={`flex items-center justify-center gap-2 rounded-2xl border-2 px-4 py-3 text-sm font-semibold transition-all duration-200 ${
-                paidBySelf
-                  ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                  : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
-              }`}
-            >
-              <div className={`h-2 w-2 rounded-full ${paidBySelf ? 'bg-pastel-purple-deep' : 'bg-ink-faint'}`} />
-              I paid
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaidBySelf(false)}
-              className={`flex items-center justify-center gap-2 rounded-2xl border-2 px-4 py-3 text-sm font-semibold transition-all duration-200 ${
-                !paidBySelf
-                  ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                  : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
-              }`}
-            >
-              <div className={`h-2 w-2 rounded-full ${!paidBySelf ? 'bg-pastel-purple-deep' : 'bg-ink-faint'}`} />
-              {partner!.display_name} paid
-            </button>
+    <>
+      <PageHeader theme={theme} back={`/groups/${id}`} title="New expense" />
+      <PageContent className="pb-4">
+        <form id={MANUAL_ENTRY_FORM_ID} className="space-y-4" onSubmit={onFormSubmit}>
+          <div>
+            <Field label="Amount" htmlFor="manual-amount-2u">
+              <Input
+                id="manual-amount-2u"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="h-16 text-center text-4xl font-extrabold tabular-nums"
+              />
+            </Field>
           </div>
-        </div>
 
-        <div>
-          <label className="mb-2 block text-sm font-semibold text-ink">How to split?</label>
-          <div className="grid grid-cols-3 gap-2">
-            {([
-              { key: 'equal' as const, label: 'Equal' },
-              { key: 'full' as const, label: 'Full' },
-              { key: 'percentage' as const, label: 'Custom %' },
-            ]).map(({ key, label }) => (
+          <Field label="Description" htmlFor="manual-description-2u">
+            <Input
+              id="manual-description-2u"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={200}
+              placeholder="What was it for?"
+            />
+          </Field>
+
+          <Field label="Who paid?">
+            <div className="flex gap-2">
               <button
-                key={key}
                 type="button"
-                onClick={() => setSplitMode(key)}
-                className={`rounded-2xl border-2 px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                  splitMode === key
-                    ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                    : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
+                onClick={() => setPaidBySelf(true)}
+                className={`flex min-h-[44px] flex-1 items-center gap-2 rounded-[18px] border-2 p-3 transition ${
+                  paidBySelf
+                    ? 'border-violet-500 bg-violet-50'
+                    : 'border-line bg-white text-ink-secondary'
                 }`}
               >
-                {label}
+                {me && (
+                  <Avatar
+                    name={me.display_name}
+                    src={me.profile_picture}
+                    colorKey={me.user_id}
+                    size="xs"
+                  />
+                )}
+                <span className="text-sm font-bold text-ink">I paid</span>
               </button>
-            ))}
-          </div>
-        </div>
-
-        {splitMode === 'percentage' && (
-          <div>
-            <label className="mb-2 block text-sm font-semibold text-ink">Your share: {selfPercent}%</label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={selfPercent}
-              onChange={(e) => setSelfPercent(Number(e.target.value))}
-              className="w-full accent-pastel-purple-deep"
-            />
-            <div className="mt-2 flex justify-between text-sm">
-              <span className="font-medium text-pastel-purple-deep">You: {selfPercent}%</span>
-              <span className="font-medium text-ink-secondary">{partner!.display_name}: {100 - selfPercent}%</span>
+              <button
+                type="button"
+                onClick={() => setPaidBySelf(false)}
+                className={`flex min-h-[44px] flex-1 items-center gap-2 rounded-[18px] border-2 p-3 transition ${
+                  !paidBySelf
+                    ? 'border-violet-500 bg-violet-50'
+                    : 'border-line bg-white text-ink-secondary'
+                }`}
+              >
+                <Avatar
+                  name={partner!.display_name}
+                  src={partner!.profile_picture}
+                  colorKey={partner!.user_id}
+                  size="xs"
+                />
+                <span className="text-sm font-bold text-ink">{partner!.display_name} paid</span>
+              </button>
             </div>
-          </div>
-        )}
+          </Field>
 
-        {parsedAmount > 0 && (
-          <div className="rounded-2xl bg-surface-secondary p-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">Split preview</p>
-            <div className="mt-2 space-y-1">
+          <Field label="How to split?">
+            <SegmentedControl
+              value={splitMode}
+              onChange={setSplitMode}
+              options={[
+                { value: 'equal', label: 'Equal' },
+                { value: 'full', label: 'Full' },
+                { value: 'percentage', label: 'Custom %' },
+              ]}
+              aria-label="How to split"
+            />
+          </Field>
+
+          {splitMode === 'percentage' && (
+            <Field label={`Your share: ${selfPercent}%`}>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={selfPercent}
+                onChange={(e) => setSelfPercent(Number(e.target.value))}
+                className="w-full accent-violet-500"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={selfPercent}
+              />
+              <div className="mt-2 flex justify-between text-sm">
+                <span className="font-medium text-violet-700">You: {selfPercent}%</span>
+                <span className="font-medium text-ink-secondary">{partner!.display_name}: {100 - selfPercent}%</span>
+              </div>
+            </Field>
+          )}
+
+          {parsedAmount > 0 && (
+            <div className={`space-y-1 rounded-3xl border-[1.5px] p-4 ${theme.soft} ${theme.softBorder}`}>
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">Split preview</p>
               {splitMode === 'equal' && (
                 <p className="text-sm text-ink-secondary">
                   <span className="font-semibold text-ink">{formatCurrency(parsedAmount / 2)}</span> each
@@ -422,17 +446,23 @@ export function ManualEntryPage() {
                 </>
               )}
             </div>
-          </div>
-        )}
+          )}
+        </form>
+      </PageContent>
 
+      <StickyFooter>
         <Button
-          onClick={onSubmit}
+          type="submit"
+          form={MANUAL_ENTRY_FORM_ID}
+          variant="accent"
+          theme={theme}
+          size="lg"
           className="w-full"
-          disabled={isSubmitting || parsedAmount <= 0 || !description.trim()}
+          disabled={saveDisabled}
         >
           {isSubmitting ? 'Saving...' : 'Save Expense'}
         </Button>
-      </Card>
-    </div>
+      </StickyFooter>
+    </>
   )
 }
