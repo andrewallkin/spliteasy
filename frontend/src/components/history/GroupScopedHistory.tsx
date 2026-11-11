@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { getHistory } from '@/api/groups'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -84,16 +84,12 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
     () => historyFilters.map((value) => ({ value, label: historyFilterLabels[value] })),
     [],
   )
-  const [rememberedGroupName, setRememberedGroupName] = useState('')
-
-  useEffect(() => {
-    const name = items.find((item) => item.group_name)?.group_name
-    if (name) {
-      setRememberedGroupName(name)
-    }
-  }, [items])
-
-  const groupPageSubtitle = rememberedGroupName || 'All transactions in this group'
+  const rememberedNamesByGroupRef = useRef<Record<string, string>>({})
+  const nameFromItems = items.find((item) => item.group_name)?.group_name
+  if (nameFromItems) {
+    rememberedNamesByGroupRef.current[groupId] = nameFromItems
+  }
+  const groupPageSubtitle = rememberedNamesByGroupRef.current[groupId] || 'All transactions in this group'
 
   const listBody = (
     <>
