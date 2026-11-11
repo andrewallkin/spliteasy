@@ -334,7 +334,7 @@ export function GroupDetailPage() {
               Settle
             </Link>
           </div>
-          {isMultiUser && suggestedSettlements.length > 0 && (
+          {isMultiUser && !balance?.is_settled && suggestedSettlements.length > 0 && (
             <div className="mt-4 border-t border-dashed border-line pt-4">
               <p className={`${microLabelClassName} mb-2`}>Suggested settlements</p>
               <div className="space-y-2">
@@ -445,7 +445,7 @@ export function GroupDetailPage() {
             {isOwner && (
               <button
                 type="button"
-                className={`text-sm font-bold ${theme.text}`}
+                className={`min-h-[44px] px-2 py-1 text-sm font-bold ${theme.text}`}
                 onClick={() => setMembersOpen(true)}
               >
                 ＋ Invite
