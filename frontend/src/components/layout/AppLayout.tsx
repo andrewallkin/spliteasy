@@ -1,42 +1,16 @@
+import type { ReactNode } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
-const tabs = [
-  {
-    to: '/',
-    label: 'Home',
-    icon: (active: boolean) => (
-      <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-      </svg>
-    ),
-  },
-  {
-    to: '/history',
-    label: 'History',
-    icon: (active: boolean) => (
-      <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  {
-    to: '/add',
-    label: 'Add',
-    icon: (active: boolean) => (
-      <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
-  {
-    to: '/profile',
-    label: 'Profile',
-    icon: (active: boolean) => (
-      <svg className={`h-6 w-6 ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-      </svg>
-    ),
-  },
+import { ClockIcon, HomeIcon, PlusCircleIcon, UserIcon } from '@/components/ui/icons'
+import { TAB_THEMES } from '@/lib/theme'
+
+const FOCUSED_FLOW = /^\/groups\/[^/]+\/(upload|manual|settle)$/
+
+const tabs: { to: string; label: string; theme: (typeof TAB_THEMES)[keyof typeof TAB_THEMES]; icon: (className: string) => ReactNode }[] = [
+  { to: '/', label: 'Home', theme: TAB_THEMES.home, icon: (c) => <HomeIcon className={c} /> },
+  { to: '/history', label: 'History', theme: TAB_THEMES.history, icon: (c) => <ClockIcon className={c} /> },
+  { to: '/add', label: 'Add', theme: TAB_THEMES.add, icon: (c) => <PlusCircleIcon className={c} /> },
+  { to: '/profile', label: 'Profile', theme: TAB_THEMES.profile, icon: (c) => <UserIcon className={c} /> },
 ]
 
 function tabActive(pathname: string, tabTo: string): boolean {
@@ -62,51 +36,40 @@ function tabActive(pathname: string, tabTo: string): boolean {
 
 export function AppLayout() {
   const location = useLocation()
+  const isFocusedFlow = FOCUSED_FLOW.test(location.pathname)
   return (
-    <div className="min-h-screen w-full pb-[calc(5rem+env(safe-area-inset-bottom))]">
-      <a href="#main-content" className="sr-only focus:not-sr-only">
+    <div className={`min-h-screen w-full bg-surface-warm ${isFocusedFlow ? 'pb-32' : 'pb-[calc(6.5rem+env(safe-area-inset-bottom))]'}`}>
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[90] focus:rounded-xl focus:bg-white focus:px-4 focus:py-2 focus:shadow-float">
         Skip to content
       </a>
-      <header className="sticky top-0 z-40 w-full border-b border-white/40 glass">
-        <div className="mx-auto flex w-full max-w-[768px] items-center gap-2 px-4 py-4 md:px-6 lg:max-w-[1200px] lg:px-8 xl:max-w-[1360px]">
-          <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-xl ring-1 ring-ink-faint/15">
-            <img src="/favicon.png" alt="" className="h-full w-full object-cover" width={32} height={32} />
-          </div>
-          <h1 className="text-lg font-bold text-ink">SplitEasy</h1>
-        </div>
-      </header>
-      <div className="mx-auto w-full max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px]">
-        <main id="main-content" className="px-4 py-5 md:px-6 lg:px-8" aria-live="polite">
+      <div className="mx-auto w-full max-w-[768px]">
+        <main id="main-content" aria-live="polite">
           <Outlet />
         </main>
       </div>
-      <nav
-        aria-label="Main navigation"
-        className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/40 glass pb-[env(safe-area-inset-bottom)]"
-      >
-        <ul className="mx-auto grid max-w-[768px] lg:max-w-[1200px] xl:max-w-[1360px] grid-cols-4">
-          {tabs.map((tab) => {
-            const active = tabActive(location.pathname, tab.to)
-            return (
-              <li key={tab.to}>
-                <Link
-                  to={tab.to}
-                  aria-current={active ? 'page' : undefined}
-                  className="flex h-16 flex-col items-center justify-center gap-0.5 transition-all duration-200"
-                >
-                  {tab.icon(active)}
-                  <span className={`text-[10px] font-medium ${active ? 'text-pastel-purple-deep' : 'text-ink-tertiary'}`}>
-                    {tab.label}
-                  </span>
-                  {active && (
-                    <div className="h-0.5 w-4 rounded-full bg-pastel-purple-deep" />
-                  )}
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+      {!isFocusedFlow && (
+        <nav aria-label="Main navigation" className="fixed inset-x-0 bottom-0 z-40 rounded-t-[28px] bg-white shadow-nav pb-[env(safe-area-inset-bottom)]">
+          <ul className="mx-auto grid h-[72px] max-w-[768px] grid-cols-4 items-center px-2">
+            {tabs.map((tab) => {
+              const active = tabActive(location.pathname, tab.to)
+              return (
+                <li key={tab.to} className="flex justify-center">
+                  <Link
+                    to={tab.to}
+                    aria-current={active ? 'page' : undefined}
+                    className={`flex h-11 min-w-[44px] items-center justify-center gap-1.5 rounded-2xl px-3.5 text-xs font-bold transition-all duration-200 ${
+                      active ? tab.theme.navActive : 'text-ink-tertiary hover:text-ink-secondary'
+                    }`}
+                  >
+                    {tab.icon('h-6 w-6')}
+                    <span className={active ? '' : 'sr-only'}>{tab.label}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+      )}
     </div>
   )
 }
