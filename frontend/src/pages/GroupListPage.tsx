@@ -25,6 +25,7 @@ export function GroupListPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [extras, setExtras] = useState<Record<string, GroupExtras>>({})
+  const [enrichmentFailedIds, setEnrichmentFailedIds] = useState<Set<string>>(() => new Set())
   const { addToast } = useToast()
   const { user } = useAuth()
 
@@ -44,13 +45,15 @@ export function GroupListPage() {
   useEffect(() => {
     let cancelled = false
     for (const group of groups) {
-      if (extras[group.id]) continue
+      if (extras[group.id] || enrichmentFailedIds.has(group.id)) continue
       Promise.all([getGroupMembers(group.id), getBalances(group.id)])
         .then(([members, balance]) => {
           if (!cancelled) setExtras((prev) => ({ ...prev, [group.id]: { members, balance } }))
         })
         .catch(() => {
-          /* best-effort: card renders without avatars/balance */
+          if (!cancelled) {
+            setEnrichmentFailedIds((prev) => new Set(prev).add(group.id))
+          }
         })
     }
     return () => {
@@ -89,17 +92,17 @@ export function GroupListPage() {
       </div>
 
       <div className="px-4">
-        <div className="rounded-[22px] border-2 border-dashed border-pastel-lavender bg-violet-50/60 px-4 py-3.5">
-          {!showCreate ? (
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="flex w-full items-center justify-center gap-2 font-bold text-violet-600"
-            >
-              <PlusIcon className="h-5 w-5" />
-              Start a new group
-            </button>
-          ) : (
+        {!showCreate ? (
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-pastel-lavender bg-violet-50/60 px-4 py-3.5 font-bold text-violet-600"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Start a new group
+          </button>
+        ) : (
+          <div className="rounded-[22px] border-2 border-dashed border-pastel-lavender bg-violet-50/60 px-4 py-3.5">
             <form
               className="flex gap-2"
               onSubmit={(event) => {
@@ -120,8 +123,8 @@ export function GroupListPage() {
                 {isCreating ? 'Creating...' : 'Create'}
               </Button>
             </form>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -143,6 +146,7 @@ export function GroupListPage() {
           {groups.map((group) => {
             const theme = groupTheme(group.id)
             const data = extras[group.id]
+            const enrichmentFailed = enrichmentFailedIds.has(group.id)
             const summary = data ? describeBalance(data.members, data.balance, user?.id) : null
             const people = data?.members.map((m) => ({
               id: m.user_id,
@@ -195,7 +199,7 @@ export function GroupListPage() {
                         ) : (
                           <span />
                         )
-                      ) : (
+                      ) : enrichmentFailed ? null : (
                         <Skeleton className="h-7 w-20 rounded-full" />
                       )}
                       {data ? (
@@ -209,7 +213,7 @@ export function GroupListPage() {
                             </div>
                           )
                         ) : null
-                      ) : (
+                      ) : enrichmentFailed ? null : (
                         <Skeleton className="h-4 w-16 rounded-full" />
                       )}
                     </div>
