@@ -1,18 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { getHistory } from '@/api/groups'
-import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { FilterChips } from '@/components/ui/FilterChips'
+import { ClockIcon } from '@/components/ui/icons'
+import { PageContent, PageHeader } from '@/components/ui/PageHeader'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
+import { groupTheme } from '@/lib/theme'
 import type { GroupHistoryItem } from '@/types/models'
 import { getErrorMessage } from '@/utils/errors'
 
 import { EntryDetailModal, useExpenseEntryModal } from './EntryDetailSheet'
 import { HistoryCard } from './HistoryCard'
 import {
+  calendarDayKey,
+  dayLabel,
   formatHistoryDate,
   formatHistoryTime,
   historyFilterLabels,
@@ -51,6 +57,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
     imageUrls?: string[]
   } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [detailHistoryItem, setDetailHistoryItem] = useState<GroupHistoryItem | null>(null)
   const { user } = useAuth()
   const { addToast } = useToast()
   const deleteConfirm = useConfirmDialog()
@@ -73,69 +80,65 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
   const entryModal = useExpenseEntryModal(loadHistory, deleteConfirm.confirm, onBalancesChanged)
   const receiptModal = useReceiptDetailModal(loadHistory, deleteConfirm.confirm, onBalancesChanged)
 
-  return (
-    <div className="space-y-4">
-      {variant === 'page' ? (
-        <div>
-          <h2 className="text-xl font-bold text-ink">History</h2>
-          <p className="mt-0.5 text-sm text-ink-secondary">All transactions in this group</p>
-        </div>
-      ) : (
-        <div>
-          <h3 className="text-sm font-bold text-ink">Transactions</h3>
-          <p className="mt-0.5 text-xs text-ink-secondary">All activity in this group</p>
-        </div>
-      )}
+  const filterOptions = useMemo(
+    () => historyFilters.map((value) => ({ value, label: historyFilterLabels[value] })),
+    [],
+  )
+  const groupName = items[0]?.group_name ?? ''
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {historyFilters.map((value) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setFilter(value)}
-            className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-semibold transition-all duration-200 ${
-              filter === value
-                ? 'bg-gradient-to-r from-pastel-purple to-pastel-purple-deep text-white shadow-soft'
-                : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-            }`}
-          >
-            {historyFilterLabels[value]}
-          </button>
-        ))}
-      </div>
+  const listBody = (
+    <>
+      <FilterChips value={filter} onChange={setFilter} options={filterOptions} aria-label="Filter transactions" />
 
       {isLoading ? (
-        <div className="flex justify-center py-8">
-          <LoadingSpinner />
-        </div>
-      ) : items.length === 0 ? (
-        <Card className="py-10 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-secondary">
-            <svg className="h-6 w-6 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-sm font-medium text-ink-secondary">No history yet</p>
-          <p className="mt-0.5 text-xs text-ink-tertiary">Transactions will appear here.</p>
-        </Card>
-      ) : (
         <div className="space-y-3">
-          {items.map((item) => (
-            <HistoryCard
-              key={`${item.group_id}-${item.type}-${item.id}`}
-              item={item}
-              showGroupName={false}
-              currentUserId={user?.id}
-              onEntryClick={entryModal.openEntryModal}
-              onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
-                setImageModal({ receiptId, imageCount, imageUrls })
-              }
-            />
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-[72px] rounded-3xl" />
           ))}
         </div>
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={<ClockIcon className="h-7 w-7" />}
+          title="No history yet"
+          description="Transactions will appear here."
+        />
+      ) : (
+        <div className="space-y-3">
+          {items.map((item, index) => {
+            const showDayLabel = index === 0 || calendarDayKey(item.timestamp) !== calendarDayKey(items[index - 1].timestamp)
+            return (
+              <Fragment key={`${item.group_id}-${item.type}-${item.id}`}>
+                {showDayLabel && (
+                  <p className="pt-1 text-[11px] font-extrabold uppercase tracking-wider text-ink-tertiary">
+                    {dayLabel(item.timestamp)}
+                  </p>
+                )}
+                <HistoryCard
+                  item={item}
+                  showGroupName={false}
+                  currentUserId={user?.id}
+                  onEntryClick={(historyItem) => {
+                    setDetailHistoryItem(historyItem)
+                    entryModal.openEntryModal(historyItem)
+                  }}
+                  onReceiptClick={(historyItem) => {
+                    setDetailHistoryItem(historyItem)
+                    receiptModal.openReceiptModal(historyItem)
+                  }}
+                  onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
+                    setImageModal({ receiptId, imageCount, imageUrls })
+                  }
+                />
+              </Fragment>
+            )
+          })}
+        </div>
       )}
+    </>
+  )
 
+  const modals = (
+    <>
       <EntryDetailModal
         isOpen={entryModal.isEntryModalOpen}
         entry={entryModal.selectedEntry}
@@ -176,6 +179,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         isMarkPaidLoading={entryModal.isMarkPaidLoading}
         onMarkPaid={entryModal.onMarkEntryPaid}
         onUnmarkPaid={entryModal.onUnmarkEntryPaid}
+        historyItem={detailHistoryItem}
       />
 
       <ReceiptDetailModal
@@ -208,6 +212,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+        historyItem={detailHistoryItem}
       />
       <ReceiptImageModal
         isOpen={imageModal !== null}
@@ -220,6 +225,29 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         {...deleteConfirm.dialogProps}
         isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting || entryModal.isMarkPaidLoading || receiptModal.isMarkPaidLoading}
       />
-    </div>
+    </>
+  )
+
+  if (variant === 'page') {
+    return (
+      <>
+        <PageHeader
+          theme={groupTheme(groupId)}
+          back={`/groups/${groupId}`}
+          title="History"
+          subtitle={groupName}
+        />
+        <PageContent className="space-y-4">{listBody}</PageContent>
+        {modals}
+      </>
+    )
+  }
+
+  return (
+    <section className="space-y-3">
+      <h3 className="text-[15px] font-extrabold text-ink">Transactions</h3>
+      {listBody}
+      {modals}
+    </section>
   )
 }

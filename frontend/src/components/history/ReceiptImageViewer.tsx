@@ -1,6 +1,7 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from 'react'
 
 import { getReceiptImageBlob } from '@/api/groups'
+import { ChevronLeftIcon, ChevronRightIcon, XMarkIcon } from '@/components/ui/icons'
 
 function useReceiptImageBlobs(receiptId: string, imageCount: number, enabled: boolean) {
   const [blobUrls, setBlobUrls] = useState<string[]>([])
@@ -130,11 +131,17 @@ export const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
     }
   }, [resetKey])
 
-  const thumbBox = 'relative h-16 w-16 overflow-hidden rounded-xl bg-surface-secondary'
-  const caption =
-    count > 1 ? (
-      <div className="pointer-events-none absolute bottom-1 left-1/2 z-[1] -translate-x-1/2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
-        Image {currentIndex + 1} of {count}
+  const thumbBox = 'relative h-11 w-11 overflow-hidden rounded-2xl bg-surface-secondary'
+  const thumbCaption =
+    count > 1 && variant === 'thumb' ? (
+      <div className="pointer-events-none absolute bottom-0.5 left-1/2 z-[1] -translate-x-1/2 rounded-full bg-black/55 px-1.5 py-0.5 text-[9px] font-bold tabular-nums text-white">
+        {currentIndex + 1}/{count}
+      </div>
+    ) : null
+  const modalCaption =
+    count > 1 && variant === 'modal' ? (
+      <div className="pointer-events-none absolute left-1/2 top-4 z-[2] -translate-x-1/2 rounded-full bg-white/15 px-3 py-1 text-xs font-bold tabular-nums text-white">
+        {currentIndex + 1} / {count}
       </div>
     ) : null
   const canGoPrev = currentIndex > 0
@@ -193,7 +200,7 @@ export const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
             key={i}
             className={
               variant === 'thumb'
-                ? 'flex h-16 min-w-16 shrink-0 snap-center items-center justify-center'
+                ? 'flex h-11 min-w-11 shrink-0 snap-center items-center justify-center'
                 : 'flex min-h-[60vh] min-w-full shrink-0 snap-center items-center justify-center'
             }
           >
@@ -216,26 +223,23 @@ export const ReceiptImageCarousel = forwardRef<ReceiptImageCarouselHandle, {
             onClick={() => jumpToIndex(currentIndex - 1)}
             disabled={!canGoPrev}
             aria-label="Previous receipt image"
-            className="absolute left-2 top-1/2 z-[2] -translate-y-1/2 rounded-full bg-black/60 p-3 text-white transition hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-35 sm:left-3 sm:p-2.5"
+            className="absolute left-3 top-1/2 z-[2] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-35"
           >
-            <svg className="h-5 w-5 sm:h-4 sm:w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path d="M12.5 4.5L7 10l5.5 5.5" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronLeftIcon className="h-5 w-5" />
           </button>
           <button
             type="button"
             onClick={() => jumpToIndex(currentIndex + 1)}
             disabled={!canGoNext}
             aria-label="Next receipt image"
-            className="absolute right-2 top-1/2 z-[2] -translate-y-1/2 rounded-full bg-black/60 p-3 text-white transition hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-35 sm:right-3 sm:p-2.5"
+            className="absolute right-3 top-1/2 z-[2] flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/15 text-white transition hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-35"
           >
-            <svg className="h-5 w-5 sm:h-4 sm:w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path d="M7.5 4.5L13 10l-5.5 5.5" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronRightIcon className="h-5 w-5" />
           </button>
         </>
       )}
-      {variant === 'modal' && caption}
+      {thumbCaption}
+      {modalCaption}
     </div>
   )
 })
@@ -283,20 +287,24 @@ export function ReceiptImageModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[75] flex items-center justify-center bg-black/90 p-4 pt-[calc(1rem+env(safe-area-inset-top))]"
+      onClick={onClose}
+    >
       <div
-        className="relative max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-black shadow-xl"
+        className="relative flex max-h-[92vh] w-full max-w-4xl items-center justify-center"
         onClick={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-3 top-3 z-10 rounded-full bg-black/55 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-black/75"
+          aria-label="Close"
+          className="absolute right-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 text-white transition hover:bg-white/25"
         >
-          Close
+          <XMarkIcon className="h-5 w-5" />
         </button>
         <ReceiptImageCarousel
-          ref={carouselRef}
+          ref={carouselRef as RefObject<ReceiptImageCarouselHandle>}
           receiptId={receiptId}
           imageCount={count}
           imageUrls={imageUrls}

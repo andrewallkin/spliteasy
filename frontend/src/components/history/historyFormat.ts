@@ -33,3 +33,21 @@ export function toSplitMode(value: string): SplitMode {
   }
   return 'equal'
 }
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+export function calendarDayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+export function dayLabel(iso: string): string {
+  const target = startOfLocalDay(new Date(iso))
+  const today = startOfLocalDay(new Date())
+  const diffDays = Math.round((today.getTime() - target.getTime()) / 86_400_000)
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  return new Date(iso).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
+}

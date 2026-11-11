@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   deleteReceipt,
@@ -10,9 +10,15 @@ import {
   updateReceiptItems,
 } from '@/api/groups'
 import { api } from '@/api/client'
+import { BottomSheet } from '@/components/ui/BottomSheet'
 import { Button } from '@/components/ui/Button'
+import { Field, microLabelClassName } from '@/components/ui/Field'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { PlusIcon, TrashIcon, WarningIcon } from '@/components/ui/icons'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
+import { Select } from '@/components/ui/Select'
+import { TypeBadge } from '@/components/ui/TypeBadge'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import type {
@@ -25,7 +31,7 @@ import type {
 import { DEFAULT_CURRENCY, formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
 
-import type { RequestConfirm } from './historyFormat'
+import { formatHistoryDate, formatHistoryTime, type RequestConfirm } from './historyFormat'
 import { MarkPaidButtons, SplitLineRow } from './historyShared'
 
 type ReceiptItemDraft = {
@@ -105,6 +111,7 @@ export function ReceiptDetailModal({
   isMarkPaidLoading,
   onMarkPaid,
   onUnmarkPaid,
+  historyItem,
 }: {
   isOpen: boolean
   nickname: string
@@ -135,16 +142,8 @@ export function ReceiptDetailModal({
   isMarkPaidLoading?: boolean
   onMarkPaid?: () => void
   onUnmarkPaid?: () => void
+  historyItem?: GroupHistoryItem | null
 }) {
-  useEffect(() => {
-    if (!isOpen) return
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isSaving && !isDeleting) onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, isSaving, isDeleting, onClose])
-
   const me = members[0]
   const partner = members[1]
 
@@ -180,82 +179,106 @@ export function ReceiptDetailModal({
     }
   }, [items, me, paidBy, partner])
 
-  if (!isOpen) return null
+  const receiptHistory = historyItem?.type === 'receipt' ? (historyItem.data as GroupHistoryReceiptData) : null
+  const paidByLabel = receiptHistory?.paid_by ?? members.find((m) => m.user_id === paidBy)?.display_name ?? ''
+  const assignOptions = [
+    { value: me?.user_id ?? 'me', label: me?.display_name ?? 'Me' },
+    { value: 'split', label: 'Split' },
+    { value: partner?.user_id ?? 'partner', label: partner?.display_name ?? 'Partner' },
+  ]
+
+  const footer = !isLoading ? (
+    <div className="flex flex-wrap justify-end gap-2">
+      <MarkPaidButtons
+        canMarkPaid={canMarkPaid}
+        canUndo={canUndoMarkPaid}
+        isLoading={isMarkPaidLoading}
+        onMark={() => onMarkPaid?.()}
+        onUndo={() => onUnmarkPaid?.()}
+      />
+      <Button variant="soft-danger" onClick={onDelete} disabled={isSaving || isDeleting} size="sm">
+        {isDeleting ? 'Deleting...' : 'Delete Receipt'}
+      </Button>
+      <Button variant="dark" onClick={onSave} disabled={isSaving || isDeleting} size="sm">
+        {isSaving ? 'Saving...' : hasPaidSplits ? 'Save details' : 'Save Changes'}
+      </Button>
+    </div>
+  ) : undefined
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
-      onClick={() => { if (!isSaving && !isDeleting) onClose() }}
-    >
-      <div
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-surface-tertiary bg-white p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isLoading ? (
-          <div className="flex justify-center py-12"><LoadingSpinner /></div>
-        ) : (
-          <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold text-ink">Receipt details</h3>
-              </div>
-              <Button
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSaving || isDeleting}
-                className="h-9 gap-1 rounded-xl px-3 text-xs"
-              >
-                <span aria-hidden="true" className="text-sm leading-none">×</span>
-                <span>Close</span>
-              </Button>
+    <BottomSheet isOpen={isOpen} onClose={onClose} title="Receipt details" closeDisabled={isSaving || isDeleting} footer={footer}>
+      {isLoading ? (
+        <div className="flex justify-center py-16"><LoadingSpinner /></div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-3xl border-[1.5px] border-line bg-surface-secondary/50 p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <TypeBadge kind="receipt" />
+              {historyItem && (
+                <span className="text-xs text-ink-tertiary">
+                  {formatHistoryDate(historyItem.timestamp)} · {formatHistoryTime(historyItem.timestamp)}
+                </span>
+              )}
             </div>
+            {paidByLabel && (
+              <p className="text-sm text-ink-secondary">
+                <span className="font-bold text-ink">Paid by </span>
+                {paidByLabel}
+              </p>
+            )}
+            {receiptHistory?.uploaded_by &&
+              receiptHistory.paid_by &&
+              receiptHistory.uploaded_by !== receiptHistory.paid_by && (
+                <p className="mt-1 text-xs text-ink-tertiary">Uploaded by {receiptHistory.uploaded_by}</p>
+            )}
+            {receiptSplits && receiptSplits.length > 0 && (
+              <ul className="mt-3 space-y-1 border-t border-line pt-3">
+                {receiptSplits.map((line) => (
+                  <SplitLineRow
+                    key={`${line.user_id ?? line.display_name}-${line.amount}`}
+                    line={line}
+                    currency={currency || undefined}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
 
-            {/* Receipt-level fields */}
-            <div className="space-y-3 rounded-3xl border border-surface-tertiary p-4">
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Nickname</label>
-                <Input value={nickname} onChange={(e) => onNicknameChange(e.target.value)} placeholder="e.g. Groceries" disabled={isSaving || isDeleting} />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Merchant</label>
-                <Input value={merchantName} onChange={(e) => onMerchantNameChange(e.target.value)} disabled={isSaving || isDeleting} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Total Amount</label>
-                  <Input inputMode="decimal" value={totalAmount} onChange={(e) => onTotalAmountChange(e.target.value)} disabled={isSaving || isDeleting || hasPaidSplits} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Currency</label>
-                  <Input value={currency} onChange={(e) => onCurrencyChange(e.target.value)} maxLength={6} disabled={isSaving || isDeleting} />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">Paid by</label>
-                <select
-                  value={paidBy}
-                  onChange={(e) => onPaidByChange(e.target.value)}
-                  disabled={isSaving || isDeleting || hasPaidSplits}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
-                >
-                  {members.map((m) => (
-                    <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
-                  ))}
-                </select>
-              </div>
+          <div className="space-y-3">
+            <Field label="Nickname" htmlFor="receiptNickname">
+              <Input id="receiptNickname" value={nickname} onChange={(e) => onNicknameChange(e.target.value)} placeholder="e.g. Groceries" disabled={isSaving || isDeleting} />
+            </Field>
+            <Field label="Merchant" htmlFor="receiptMerchant">
+              <Input id="receiptMerchant" value={merchantName} onChange={(e) => onMerchantNameChange(e.target.value)} disabled={isSaving || isDeleting} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Total Amount" htmlFor="receiptTotal">
+                <Input id="receiptTotal" inputMode="decimal" value={totalAmount} onChange={(e) => onTotalAmountChange(e.target.value)} disabled={isSaving || isDeleting || hasPaidSplits} />
+              </Field>
+              <Field label="Currency" htmlFor="receiptCurrency">
+                <Input id="receiptCurrency" value={currency} onChange={(e) => onCurrencyChange(e.target.value)} maxLength={6} disabled={isSaving || isDeleting} />
+              </Field>
             </div>
+            <Field label="Paid by" htmlFor="receiptPaidBy">
+              <Select id="receiptPaidBy" value={paidBy} onChange={(e) => onPaidByChange(e.target.value)} disabled={isSaving || isDeleting || hasPaidSplits}>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
 
-            {/* Line items */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Line Items</h4>
-              {items.map((item) => (
+          <div className="space-y-3">
+            <h4 className={microLabelClassName}>Line Items</h4>
+            {items.map((item) => {
+              const uncertain = item.confidence > 0 && item.confidence < 0.85
+              return (
                 <div
                   key={item.key}
-                  className={`space-y-2 rounded-2xl border p-3 ${item.confidence > 0 && item.confidence < 0.85 ? 'border-pastel-peach/60 bg-orange-50/50' : 'border-ink-faint/30'}`}
+                  className={`space-y-3 rounded-[20px] border-[1.5px] p-3 ${uncertain ? 'border-orange-200 bg-orange-50/60' : 'border-line bg-white'}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
                       <Input
                         placeholder="Description"
                         value={item.description}
@@ -263,155 +286,94 @@ export function ReceiptDetailModal({
                         disabled={isSaving || isDeleting}
                       />
                     </div>
-                    {item.confidence > 0 && item.confidence < 0.85 && (
-                      <span className="shrink-0 rounded-xl bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase text-orange-600">?</span>
+                    {uncertain && (
+                      <span className="flex shrink-0 items-center gap-1 text-[10px] font-bold text-orange-600">
+                        <WarningIcon className="h-4 w-4" />
+                        Uncertain
+                      </span>
                     )}
                     <button
                       type="button"
                       onClick={() => onItemDelete(item.key)}
                       disabled={isSaving || isDeleting}
-                      className="shrink-0 rounded-xl p-1.5 text-ink-faint transition hover:bg-surface-secondary hover:text-ink-secondary disabled:opacity-40"
+                      aria-label="Delete line item"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-ink-tertiary transition hover:bg-surface-secondary hover:text-ink disabled:opacity-40"
                     >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      <TrashIcon className="h-4 w-4" />
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    <div>
-                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Qty</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Field label="Qty">
                       <Input inputMode="numeric" value={item.quantity} onChange={(e) => onItemChange(item.key, { quantity: e.target.value })} disabled={isSaving || isDeleting} />
-                    </div>
-                    <div>
-                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Price/unit</label>
+                    </Field>
+                    <Field label="Price/unit">
                       <Input inputMode="decimal" value={item.price_per_unit} onChange={(e) => onItemChange(item.key, { price_per_unit: e.target.value })} disabled={isSaving || isDeleting} />
-                    </div>
-                    <div>
-                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Pre-Discount</label>
+                    </Field>
+                    <Field label="Pre-Discount">
                       <Input inputMode="decimal" value={item.line_subtotal} onChange={(e) => onItemChange(item.key, { line_subtotal: e.target.value })} disabled={isSaving || isDeleting} readOnly={item.isManual} className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''} />
-                    </div>
-                    <div>
-                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Discount</label>
+                    </Field>
+                    <Field label="Discount">
                       <Input inputMode="decimal" value={item.line_discount} onChange={(e) => onItemChange(item.key, { line_discount: e.target.value })} disabled={isSaving || isDeleting} />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">After Discount</label>
+                    </Field>
+                    <Field label="After Discount" className="col-span-2">
                       <Input inputMode="decimal" value={item.final_line_total} onChange={(e) => onItemChange(item.key, { final_line_total: e.target.value })} disabled={isSaving || isDeleting} readOnly={item.isManual} className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''} />
-                    </div>
+                    </Field>
                   </div>
 
-                  <div>
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Assign to</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { label: me?.display_name ?? 'Me', value: me?.user_id ?? 'me' },
-                        { label: 'Split', value: 'split' },
-                        { label: partner?.display_name ?? 'Partner', value: partner?.user_id ?? 'partner' },
-                      ].map(({ label, value }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => onItemChange(item.key, { assignee: value })}
-                          disabled={isSaving || isDeleting}
-                          className={`rounded-xl px-2 py-1.5 text-xs font-semibold transition-all disabled:opacity-60 ${
-                            item.assignee === value
-                              ? 'bg-pastel-purple-deep text-white'
-                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <button
-                type="button"
-                onClick={onItemAdd}
-                disabled={isSaving || isDeleting}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-ink-faint/30 py-2.5 text-sm font-medium text-ink-tertiary transition hover:border-pastel-purple/40 hover:text-ink-secondary disabled:opacity-40"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Add item
-              </button>
-            </div>
-
-            {/* Split summary */}
-            {splitSummary && me && partner && (
-              <div className="rounded-2xl bg-surface-secondary p-3 text-sm text-ink-secondary">
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</p>
-                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
-                <div className="flex justify-between">
-                  <span>{partner.display_name} share</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerShare, currency || DEFAULT_CURRENCY)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{me.display_name} share</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meShare, currency || DEFAULT_CURRENCY)}</span>
-                </div>
-                <p className="mb-1 pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
-                <div className="flex justify-between">
-                  <span>{partner.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerOwes, currency || DEFAULT_CURRENCY)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{me.display_name} owes</span>
-                  <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meOwes, currency || DEFAULT_CURRENCY)}</span>
-                </div>
-              </div>
-            )}
-
-            {receiptSplits && receiptSplits.length > 0 && (
-              <div className="space-y-1 rounded-2xl bg-surface-secondary p-3">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split</p>
-                <ul className="space-y-0.5">
-                  {receiptSplits.map((line) => (
-                    <SplitLineRow
-                      key={`${line.user_id ?? line.display_name}-${line.amount}`}
-                      line={line}
-                      currency={currency || undefined}
+                  <Field label="Assign to">
+                    <SegmentedControl
+                      value={item.assignee}
+                      onChange={(value) => onItemChange(item.key, { assignee: value })}
+                      options={assignOptions}
+                      disabled={isSaving || isDeleting}
+                      size="sm"
                     />
-                  ))}
-                </ul>
-              </div>
-            )}
+                  </Field>
+                </div>
+              )
+            })}
 
-            {/* Actions */}
-            <div className="flex flex-wrap justify-end gap-2">
-              <MarkPaidButtons
-                canMarkPaid={canMarkPaid}
-                canUndo={canUndoMarkPaid}
-                isLoading={isMarkPaidLoading}
-                onMark={() => onMarkPaid?.()}
-                onUndo={() => onUnmarkPaid?.()}
-              />
-              <Button
-                variant="danger"
-                onClick={onDelete}
-                disabled={isSaving || isDeleting}
-                className="h-10 rounded-xl px-4 text-xs"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete Receipt'}
-              </Button>
-              <Button
-                onClick={onSave}
-                disabled={isSaving || isDeleting}
-                className="h-10 rounded-xl px-4 text-xs"
-              >
-                {isSaving ? 'Saving...' : hasPaidSplits ? 'Save details' : 'Save Changes'}
-              </Button>
-            </div>
+            <button
+              type="button"
+              onClick={onItemAdd}
+              disabled={isSaving || isDeleting}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line py-3 text-sm font-bold text-ink-tertiary transition hover:border-violet-200 hover:text-ink-secondary disabled:opacity-40"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Add item
+            </button>
           </div>
-        )}
-      </div>
-    </div>
+
+          {splitSummary && me && partner && (
+            <div className="rounded-2xl bg-surface-secondary p-3 text-sm text-ink-secondary">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</p>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+              <div className="flex justify-between">
+                <span>{partner.display_name} share</span>
+                <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerShare, currency || DEFAULT_CURRENCY)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>{me.display_name} share</span>
+                <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meShare, currency || DEFAULT_CURRENCY)}</span>
+              </div>
+              <p className="mb-1 pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
+              <div className="flex justify-between">
+                <span>{partner.display_name} owes</span>
+                <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.partnerOwes, currency || DEFAULT_CURRENCY)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>{me.display_name} owes</span>
+                <span className="font-semibold tabular-nums text-ink">{formatCurrency(splitSummary.meOwes, currency || DEFAULT_CURRENCY)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </BottomSheet>
   )
 }
+
 
 // ---------------------------------------------------------------------------
 // useReceiptDetailModal

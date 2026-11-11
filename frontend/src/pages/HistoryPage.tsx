@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { getAllHistory, listGroups } from '@/api/groups'
@@ -13,12 +13,19 @@ import {
   useExpenseEntryModal,
   useReceiptDetailModal,
 } from '@/components/history/GroupScopedHistory'
-import { Card } from '@/components/ui/Card'
+import { calendarDayKey, dayLabel } from '@/components/history/historyFormat'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Field, microLabelClassName } from '@/components/ui/Field'
+import { FilterChips } from '@/components/ui/FilterChips'
+import { ClockIcon } from '@/components/ui/icons'
+import { PageContent, PageHeader } from '@/components/ui/PageHeader'
+import { Select } from '@/components/ui/Select'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
+import { TAB_THEMES } from '@/lib/theme'
 import type { Group, GroupHistoryItem } from '@/types/models'
 import { getErrorMessage } from '@/utils/errors'
 
@@ -43,6 +50,7 @@ function GlobalHistoryPage() {
     imageCount: number
     imageUrls?: string[]
   } | null>(null)
+  const [detailHistoryItem, setDetailHistoryItem] = useState<GroupHistoryItem | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { user } = useAuth()
   const { addToast } = useToast()
@@ -86,80 +94,75 @@ function GlobalHistoryPage() {
     ? `Transactions in ${selectedGroup.name}`
     : 'All transactions across your groups'
 
+  const filterOptions = useMemo(
+    () => historyFilters.map((value) => ({ value, label: historyFilterLabels[value] })),
+    [],
+  )
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-ink">History</h2>
-        <p className="mt-0.5 text-sm text-ink-secondary">{subtitle}</p>
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor="groupFilter" className="text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-          Group
-        </label>
-        <select
-          id="groupFilter"
-          value={selectedGroupId}
-          onChange={(event) => setSelectedGroupId(event.target.value)}
-          className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
-        >
-          <option value="">All groups</option>
-          {groups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {historyFilters.map((value) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setFilter(value)}
-            className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-semibold transition-all duration-200 ${
-              filter === value
-                ? 'bg-gradient-to-r from-pastel-purple to-pastel-purple-deep text-white shadow-soft'
-                : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-            }`}
+    <>
+      <PageHeader theme={TAB_THEMES.history} title="History" subtitle={subtitle} />
+      <PageContent className="space-y-4">
+        <Field label="Group" htmlFor="groupFilter">
+          <Select
+            id="groupFilter"
+            value={selectedGroupId}
+            onChange={(event) => setSelectedGroupId(event.target.value)}
           >
-            {historyFilterLabels[value]}
-          </button>
-        ))}
-      </div>
+            <option value="">All groups</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
-      {isLoading ? (
-        <div className="flex justify-center py-8">
-          <LoadingSpinner />
-        </div>
-      ) : items.length === 0 ? (
-        <Card className="py-10 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-secondary">
-            <svg className="h-6 w-6 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+        <FilterChips value={filter} onChange={setFilter} options={filterOptions} aria-label="Filter history" />
+
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-[72px] rounded-3xl" />
+            ))}
           </div>
-          <p className="text-sm font-medium text-ink-secondary">No history yet</p>
-          <p className="mt-0.5 text-xs text-ink-tertiary">Transactions across your groups will appear here.</p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <HistoryCard
-              key={`${item.group_id}-${item.type}-${item.id}`}
-              item={item}
-              showGroupName
-              currentUserId={user?.id}
-              onEntryClick={entryModal.openEntryModal}
-              onReceiptClick={receiptModal.openReceiptModal}
-              onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
-                setImageModal({ receiptId, imageCount, imageUrls })
-              }
-            />
-          ))}
-        </div>
-      )}
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<ClockIcon className="h-7 w-7" />}
+            title="No history yet"
+            description="Transactions across your groups will appear here."
+          />
+        ) : (
+          <div className="space-y-3">
+            {items.map((item, index) => {
+              const showDayLabel = index === 0 || calendarDayKey(item.timestamp) !== calendarDayKey(items[index - 1].timestamp)
+              return (
+                <Fragment key={`${item.group_id}-${item.type}-${item.id}`}>
+                  {showDayLabel && (
+                    <p className={`pt-1 ${microLabelClassName}`}>{dayLabel(item.timestamp)}</p>
+                  )}
+                  <HistoryCard
+                    item={item}
+                    showGroupName
+                    currentUserId={user?.id}
+                    onEntryClick={(historyItem) => {
+                      setDetailHistoryItem(historyItem)
+                      entryModal.openEntryModal(historyItem)
+                    }}
+                    onReceiptClick={(historyItem) => {
+                      setDetailHistoryItem(historyItem)
+                      receiptModal.openReceiptModal(historyItem)
+                    }}
+                    onReceiptImageClick={(receiptId, imageCount, imageUrls) =>
+                      setImageModal({ receiptId, imageCount, imageUrls })
+                    }
+                  />
+                </Fragment>
+              )
+            })}
+          </div>
+        )}
+      </PageContent>
 
       <EntryDetailModal
         isOpen={entryModal.isEntryModalOpen}
@@ -201,6 +204,7 @@ function GlobalHistoryPage() {
         isMarkPaidLoading={entryModal.isMarkPaidLoading}
         onMarkPaid={entryModal.onMarkEntryPaid}
         onUnmarkPaid={entryModal.onUnmarkEntryPaid}
+        historyItem={detailHistoryItem}
       />
 
       <ReceiptDetailModal
@@ -233,6 +237,7 @@ function GlobalHistoryPage() {
         onItemAdd={receiptModal.onItemAdd}
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
+        historyItem={detailHistoryItem}
       />
       <ReceiptImageModal
         isOpen={imageModal !== null}
@@ -245,6 +250,6 @@ function GlobalHistoryPage() {
         {...deleteConfirm.dialogProps}
         isLoading={entryModal.isDeletingEntry || receiptModal.isDeleting || entryModal.isMarkPaidLoading || receiptModal.isMarkPaidLoading}
       />
-    </div>
+    </>
   )
 }

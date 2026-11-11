@@ -8,9 +8,16 @@ import {
   unmarkEntryPaid,
   updateEntry,
 } from '@/api/groups'
+import { BottomSheet } from '@/components/ui/BottomSheet'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Field } from '@/components/ui/Field'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { PencilSquareIcon } from '@/components/ui/icons'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
+import { Select } from '@/components/ui/Select'
+import { TypeBadge } from '@/components/ui/TypeBadge'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import type { GroupHistoryItem, GroupMember, ManualEntryDetail } from '@/types/models'
@@ -18,7 +25,7 @@ import { formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
 
 import { formatHistoryDate, formatHistoryTime, type RequestConfirm, type SplitMode, toSplitMode } from './historyFormat'
-import { displayNameFor, entryHasPaidSplits, MarkPaidButtons } from './historyShared'
+import { displayNameFor, entryHasPaidSplits, MarkPaidButtons, SplitLineRow } from './historyShared'
 
 export function EntryDetailModal({
   isOpen,
@@ -48,6 +55,7 @@ export function EntryDetailModal({
   isMarkPaidLoading,
   onMarkPaid,
   onUnmarkPaid,
+  historyItem,
 }: {
   isOpen: boolean
   entry: ManualEntryDetail | null
@@ -76,257 +84,186 @@ export function EntryDetailModal({
   isMarkPaidLoading?: boolean
   onMarkPaid?: () => void
   onUnmarkPaid?: () => void
+  historyItem?: GroupHistoryItem | null
 }) {
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isSaving && !isDeleting) {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [isOpen, isSaving, isDeleting, onClose])
-
-  if (!isOpen) {
-    return null
-  }
-
   const parsedAmount = Number(amountDraft) || 0
   const secondUser = members[1]
   const canEditStructure = canEdit && !entryHasPaidSplits(entry)
+  const splitModeOptions = [
+    { value: 'equal' as const, label: 'Equal' },
+    { value: 'full' as const, label: 'Full' },
+    { value: 'percentage' as const, label: 'Custom %' },
+  ]
+  const historyEntryData = historyItem?.type === 'entry' ? historyItem.data : null
+  const metaSplits = historyEntryData && 'splits' in historyEntryData && Array.isArray(historyEntryData.splits)
+    ? historyEntryData.splits
+    : null
+
+  const footer = entry ? (
+    <div className="flex flex-wrap justify-end gap-2">
+      <MarkPaidButtons
+        canMarkPaid={canMarkPaid}
+        canUndo={canUndoMarkPaid}
+        isLoading={isMarkPaidLoading}
+        onMark={() => onMarkPaid?.()}
+        onUndo={() => onUnmarkPaid?.()}
+      />
+      <Button
+        variant="soft-danger"
+        onClick={onDelete}
+        disabled={!canEdit || isSaving || isDeleting}
+        size="sm"
+      >
+        {isDeleting ? 'Deleting...' : 'Delete'}
+      </Button>
+      <Button
+        variant="dark"
+        onClick={onSave}
+        disabled={
+          !canEdit
+          || isSaving
+          || isDeleting
+          || !descriptionDraft.trim()
+          || (canEditStructure && parsedAmount <= 0)
+        }
+        size="sm"
+      >
+        {isSaving ? 'Saving...' : entryHasPaidSplits(entry) ? 'Save details' : 'Save changes'}
+      </Button>
+    </div>
+  ) : undefined
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
-      onClick={() => {
-        if (!isSaving && !isDeleting) {
-          onClose()
-        }
-      }}
+    <BottomSheet
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Expense details"
+      closeDisabled={isSaving || isDeleting}
+      footer={footer}
     >
-      <div
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-surface-tertiary bg-white p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <LoadingSpinner />
-          </div>
-        ) : !entry ? (
-          <div className="space-y-4 text-center">
-            <p className="text-sm text-ink-secondary">Expense could not be loaded.</p>
-            <Button variant="secondary" onClick={onClose}>Close</Button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold text-ink">Expense details</h3>
-                <p className="text-xs text-ink-tertiary">
-                  Created {formatHistoryDate(entry.created_at)} at {formatHistoryTime(entry.created_at)}
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSaving || isDeleting}
-                className="h-9 gap-1 rounded-xl px-3 text-xs"
-              >
-                <span aria-hidden="true" className="text-sm leading-none">×</span>
-                <span>Close</span>
-              </Button>
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <LoadingSpinner />
+        </div>
+      ) : !entry ? (
+        <EmptyState
+          title="Expense could not be loaded."
+          icon={<PencilSquareIcon className="h-7 w-7" />}
+          action={<Button variant="secondary" onClick={onClose}>Close</Button>}
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-3xl border-[1.5px] border-line bg-surface-secondary/50 p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <TypeBadge kind="entry" />
+              <span className="text-xs text-ink-tertiary">
+                {formatHistoryDate(entry.created_at)} · {formatHistoryTime(entry.created_at)}
+              </span>
             </div>
+            <p className="text-sm text-ink-secondary">
+              <span className="font-bold text-ink">Paid by </span>
+              {displayNameFor(paidBy, members)}
+            </p>
+            {metaSplits && metaSplits.length > 0 && (
+              <ul className="mt-3 space-y-1 border-t border-line pt-3">
+                {metaSplits.map((line) => (
+                  <SplitLineRow key={`${line.user_id ?? line.display_name}-${line.amount}`} line={line} />
+                ))}
+              </ul>
+            )}
+          </div>
 
-            <div className="space-y-4 rounded-3xl border border-surface-tertiary bg-white p-4 shadow-sm">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                  Description
-                </label>
-                <Input
-                  value={descriptionDraft}
-                  onChange={(event) => onDescriptionChange(event.target.value)}
-                  maxLength={200}
-                  disabled={!canEdit || isSaving || isDeleting}
-                />
-              </div>
+          <Field label="Description" htmlFor="entryDescription">
+            <Input
+              id="entryDescription"
+              value={descriptionDraft}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              maxLength={200}
+              disabled={!canEdit || isSaving || isDeleting}
+            />
+          </Field>
 
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                  Amount
-                </label>
-                <Input
-                  value={amountDraft}
-                  onChange={(event) => onAmountChange(event.target.value)}
-                  inputMode="decimal"
-                  disabled={!canEditStructure || isSaving || isDeleting}
-                />
-              </div>
+          <Field label="Amount" htmlFor="entryAmount">
+            <Input
+              id="entryAmount"
+              value={amountDraft}
+              onChange={(event) => onAmountChange(event.target.value)}
+              inputMode="decimal"
+              disabled={!canEditStructure || isSaving || isDeleting}
+            />
+          </Field>
 
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                  Paid by
-                </label>
-                <select
-                  value={paidBy}
-                  onChange={(event) => onPaidByChange(event.target.value)}
-                  disabled={!canEditStructure || isSaving || isDeleting}
-                  className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
-                >
-                  {members.map((member) => (
+          <Field label="Paid by" htmlFor="entryPaidBy">
+            <Select
+              id="entryPaidBy"
+              value={paidBy}
+              onChange={(event) => onPaidByChange(event.target.value)}
+              disabled={!canEditStructure || isSaving || isDeleting}
+            >
+              {members.map((member) => (
+                <option key={member.user_id} value={member.user_id}>
+                  {member.display_name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Split mode">
+            <SegmentedControl
+              value={splitMode}
+              onChange={onSplitModeChange}
+              options={splitModeOptions}
+              disabled={!canEditStructure || isSaving || isDeleting}
+            />
+          </Field>
+
+          {splitMode === 'full' && (
+            <Field label="Who owes full amount" htmlFor="entryFullSplitUser">
+              <Select
+                id="entryFullSplitUser"
+                value={fullSplitUserId}
+                onChange={(event) => onFullSplitUserIdChange(event.target.value)}
+                disabled={!canEditStructure || isSaving || isDeleting}
+              >
+                {members
+                  .filter((member) => member.user_id !== paidBy)
+                  .map((member) => (
                     <option key={member.user_id} value={member.user_id}>
                       {member.display_name}
                     </option>
                   ))}
-                </select>
-              </div>
+              </Select>
+            </Field>
+          )}
 
-              <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                  Split mode
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { key: 'equal' as const, label: 'Equal' },
-                    { key: 'full' as const, label: 'Full' },
-                    { key: 'percentage' as const, label: 'Custom %' },
-                  ]).map(({ key, label }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => onSplitModeChange(key)}
-                      disabled={!canEditStructure || isSaving || isDeleting}
-                      className={`rounded-2xl border-2 px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                        splitMode === key
-                          ? 'border-pastel-purple bg-pastel-lavender/20 text-pastel-purple-deep'
-                          : 'border-ink-faint/30 bg-surface-secondary text-ink-secondary hover:border-ink-faint/60'
-                      } disabled:opacity-60`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {splitMode === 'full' && (
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                    Who owes full amount
-                  </label>
-                  <select
-                    value={fullSplitUserId}
-                    onChange={(event) => onFullSplitUserIdChange(event.target.value)}
-                    disabled={!canEditStructure || isSaving || isDeleting}
-                    className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none disabled:opacity-60"
-                  >
-                    {members
-                      .filter((member) => member.user_id !== paidBy)
-                      .map((member) => (
-                        <option key={member.user_id} value={member.user_id}>
-                          {member.display_name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
-
-              {splitMode === 'percentage' && members.length >= 2 && secondUser && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-ink-tertiary">
-                    Percentage split
-                  </label>
-                  <input
-                    type="range"
-                    min={1}
-                    max={99}
-                    step={1}
-                    value={firstUserPercentage}
-                    onChange={(event) => onFirstUserPercentageChange(Number(event.target.value))}
-                    disabled={!canEditStructure || isSaving || isDeleting}
-                    className="w-full accent-pastel-purple-deep disabled:opacity-60"
-                  />
-                  <div className="flex justify-between text-sm">
-                    <span className="text-ink-secondary">
-                      {members[0]?.display_name}: <span className="font-semibold text-ink">{firstUserPercentage}%</span>
-                    </span>
-                    <span className="text-ink-secondary">
-                      {secondUser.display_name}: <span className="font-semibold text-ink">{100 - firstUserPercentage}%</span>
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-2xl bg-surface-secondary p-3 text-sm text-ink-secondary">
-                <p>
-                  <span className="font-semibold text-ink">Paid by:</span> {displayNameFor(paidBy, members)}
-                </p>
-                <p>
-                  <span className="font-semibold text-ink">Amount:</span> {formatCurrency(parsedAmount)}
-                </p>
-                {entry.splits.length > 0 && (
-                  <div className="mt-2 border-t border-ink-faint/20 pt-2">
-                    <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Split</p>
-                    <ul className="space-y-0.5">
-                      {[...entry.splits]
-                        .sort((a, b) =>
-                          displayNameFor(a.user_id, members).localeCompare(displayNameFor(b.user_id, members)),
-                        )
-                        .map((split) => (
-                          <li key={split.user_id} className="flex items-center justify-between gap-2">
-                            <span>{displayNameFor(split.user_id, members)}</span>
-                            <span className="font-semibold tabular-nums text-ink">
-                              {formatCurrency(Number(split.amount))}
-                            </span>
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <MarkPaidButtons
-                canMarkPaid={canMarkPaid}
-                canUndo={canUndoMarkPaid}
-                isLoading={isMarkPaidLoading}
-                onMark={() => onMarkPaid?.()}
-                onUndo={() => onUnmarkPaid?.()}
+          {splitMode === 'percentage' && members.length >= 2 && secondUser && (
+            <Field label="Percentage split">
+              <input
+                type="range"
+                min={1}
+                max={99}
+                step={1}
+                value={firstUserPercentage}
+                onChange={(event) => onFirstUserPercentageChange(Number(event.target.value))}
+                disabled={!canEditStructure || isSaving || isDeleting}
+                className="w-full accent-violet-500 disabled:opacity-60"
               />
-              <Button
-                variant="danger"
-                onClick={onDelete}
-                disabled={!canEdit || isSaving || isDeleting}
-                className="h-10 rounded-xl px-4 text-xs"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete'}
-              </Button>
-              <Button
-                onClick={onSave}
-                disabled={
-                  !canEdit
-                  || isSaving
-                  || isDeleting
-                  || !descriptionDraft.trim()
-                  || (canEditStructure && parsedAmount <= 0)
-                }
-                className="h-10 rounded-xl px-4 text-xs"
-              >
-                {isSaving ? 'Saving...' : entryHasPaidSplits(entry) ? 'Save details' : 'Save changes'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+              <div className="mt-2 flex justify-between text-sm text-ink-secondary">
+                <span>
+                  {members[0]?.display_name}: <span className="font-semibold text-ink">{firstUserPercentage}%</span>
+                </span>
+                <span>
+                  {secondUser.display_name}: <span className="font-semibold text-ink">{100 - firstUserPercentage}%</span>
+                </span>
+              </div>
+            </Field>
+          )}
+        </div>
+      )}
+    </BottomSheet>
   )
 }
+
 
 export function useExpenseEntryModal(
   loadHistory: () => Promise<void>,
