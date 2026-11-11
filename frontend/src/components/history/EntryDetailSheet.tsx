@@ -25,7 +25,7 @@ import { formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
 
 import { formatHistoryDate, formatHistoryTime, type RequestConfirm, type SplitMode, toSplitMode } from './historyFormat'
-import { displayNameFor, entryHasPaidSplits, MarkPaidButtons, SplitLineRow } from './historyShared'
+import { displayNameFor, entryHasPaidSplits, MarkPaidButtons, SplitLineRow, splitTypeCaption } from './historyShared'
 
 export function EntryDetailModal({
   isOpen,
@@ -56,6 +56,7 @@ export function EntryDetailModal({
   onMarkPaid,
   onUnmarkPaid,
   historyItem,
+  currentUserId,
 }: {
   isOpen: boolean
   entry: ManualEntryDetail | null
@@ -85,6 +86,7 @@ export function EntryDetailModal({
   onMarkPaid?: () => void
   onUnmarkPaid?: () => void
   historyItem?: GroupHistoryItem | null
+  currentUserId?: string
 }) {
   const parsedAmount = Number(amountDraft) || 0
   const secondUser = members[1]
@@ -98,6 +100,10 @@ export function EntryDetailModal({
   const metaSplits = historyEntryData && 'splits' in historyEntryData && Array.isArray(historyEntryData.splits)
     ? historyEntryData.splits
     : null
+  const historySplitType = historyEntryData && 'split_type' in historyEntryData
+    ? (historyEntryData.split_type as string | null | undefined)
+    : undefined
+  const splitTypeLabel = splitTypeCaption(historySplitType ?? entry?.split_type)
 
   const footer = entry ? (
     <div className="flex flex-wrap justify-end gap-2">
@@ -167,9 +173,16 @@ export function EntryDetailModal({
             {metaSplits && metaSplits.length > 0 && (
               <ul className="mt-3 space-y-1 border-t border-line pt-3">
                 {metaSplits.map((line) => (
-                  <SplitLineRow key={`${line.user_id ?? line.display_name}-${line.amount}`} line={line} />
+                  <SplitLineRow
+                    key={`${line.user_id ?? line.display_name}-${line.amount}`}
+                    line={line}
+                    currentUserId={currentUserId}
+                  />
                 ))}
               </ul>
+            )}
+            {splitTypeLabel && (
+              <p className="mt-2 text-xs text-ink-tertiary">{splitTypeLabel}</p>
             )}
           </div>
 

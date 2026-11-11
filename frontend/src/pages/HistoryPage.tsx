@@ -144,7 +144,6 @@ function GlobalHistoryPage() {
                   <HistoryCard
                     item={item}
                     showGroupName
-                    currentUserId={user?.id}
                     onEntryClick={(historyItem) => {
                       setDetailHistoryItem(historyItem)
                       entryModal.openEntryModal(historyItem)
@@ -205,6 +204,7 @@ function GlobalHistoryPage() {
         onMarkPaid={entryModal.onMarkEntryPaid}
         onUnmarkPaid={entryModal.onUnmarkEntryPaid}
         historyItem={detailHistoryItem}
+        currentUserId={user?.id}
       />
 
       <ReceiptDetailModal
@@ -238,6 +238,7 @@ function GlobalHistoryPage() {
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
         historyItem={detailHistoryItem}
+        currentUserId={user?.id}
       />
       <ReceiptImageModal
         isOpen={imageModal !== null}

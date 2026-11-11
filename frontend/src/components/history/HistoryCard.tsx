@@ -16,16 +16,13 @@ export function HistoryCard({
   onEntryClick,
   onReceiptClick,
   onReceiptImageClick,
-  currentUserId,
 }: {
   item: GroupHistoryItem
   showGroupName: boolean
-  currentUserId?: string
   onEntryClick: (item: GroupHistoryItem) => void
   onReceiptClick: (item: GroupHistoryItem) => void
   onReceiptImageClick: (receiptId: string, imageCount: number, imageUrls?: string[]) => void
 }) {
-  void currentUserId
   const entryData = item.type === 'entry' ? (item.data as GroupHistoryEntryData) : null
   const receiptData = item.type === 'receipt' ? (item.data as GroupHistoryReceiptData) : null
   const settlementData = item.type === 'settlement' ? (item.data as Record<string, string | null | undefined>) : null
@@ -38,6 +35,7 @@ export function HistoryCard({
   let title = ''
   let paidLine = ''
   let notesLine: string | null = null
+  let merchantSubLine: string | null = null
   let amountValue = 0
   let amountCurrency: string | undefined
   let amountTone: 'owed' | 'owe' | 'neutral' = 'neutral'
@@ -49,6 +47,9 @@ export function HistoryCard({
   } else if (isReceipt && receiptData) {
     title = receiptData.nickname || receiptData.merchant_name || 'Receipt'
     paidLine = receiptData.paid_by ? `${receiptData.paid_by} paid` : ''
+    if (receiptData.nickname && receiptData.merchant_name) {
+      merchantSubLine = receiptData.merchant_name
+    }
     amountValue = Number(receiptData.total_amount || 0)
     amountCurrency = typeof receiptData.currency === 'string' ? receiptData.currency : undefined
   } else if (isSettlement && settlementData) {
@@ -120,6 +121,9 @@ export function HistoryCard({
           )}
           {paidLine}
         </p>
+        {merchantSubLine && (
+          <p className="mt-0.5 truncate text-xs text-ink-tertiary">{merchantSubLine}</p>
+        )}
         {notesLine && (
           <p className="mt-0.5 text-xs text-ink-tertiary">{notesLine}</p>
         )}

@@ -112,6 +112,7 @@ export function ReceiptDetailModal({
   onMarkPaid,
   onUnmarkPaid,
   historyItem,
+  currentUserId,
 }: {
   isOpen: boolean
   nickname: string
@@ -143,6 +144,7 @@ export function ReceiptDetailModal({
   onMarkPaid?: () => void
   onUnmarkPaid?: () => void
   historyItem?: GroupHistoryItem | null
+  currentUserId?: string
 }) {
   const me = members[0]
   const partner = members[1]
@@ -238,6 +240,7 @@ export function ReceiptDetailModal({
                     key={`${line.user_id ?? line.display_name}-${line.amount}`}
                     line={line}
                     currency={currency || undefined}
+                    currentUserId={currentUserId}
                   />
                 ))}
               </ul>
@@ -297,7 +300,7 @@ export function ReceiptDetailModal({
                       onClick={() => onItemDelete(item.key)}
                       disabled={isSaving || isDeleting}
                       aria-label="Delete line item"
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-ink-tertiary transition hover:bg-surface-secondary hover:text-ink disabled:opacity-40"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-ink-tertiary transition hover:bg-surface-secondary hover:text-ink disabled:opacity-40"
                     >
                       <TrashIcon className="h-4 w-4" />
                     </button>

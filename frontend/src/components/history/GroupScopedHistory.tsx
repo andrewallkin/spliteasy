@@ -84,7 +84,16 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
     () => historyFilters.map((value) => ({ value, label: historyFilterLabels[value] })),
     [],
   )
-  const groupName = items[0]?.group_name ?? ''
+  const [rememberedGroupName, setRememberedGroupName] = useState('')
+
+  useEffect(() => {
+    const name = items.find((item) => item.group_name)?.group_name
+    if (name) {
+      setRememberedGroupName(name)
+    }
+  }, [items])
+
+  const groupPageSubtitle = rememberedGroupName || 'All transactions in this group'
 
   const listBody = (
     <>
@@ -116,7 +125,6 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
                 <HistoryCard
                   item={item}
                   showGroupName={false}
-                  currentUserId={user?.id}
                   onEntryClick={(historyItem) => {
                     setDetailHistoryItem(historyItem)
                     entryModal.openEntryModal(historyItem)
@@ -180,6 +188,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         onMarkPaid={entryModal.onMarkEntryPaid}
         onUnmarkPaid={entryModal.onUnmarkEntryPaid}
         historyItem={detailHistoryItem}
+        currentUserId={user?.id}
       />
 
       <ReceiptDetailModal
@@ -213,6 +222,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
         onSave={receiptModal.onSave}
         onDelete={receiptModal.onDelete}
         historyItem={detailHistoryItem}
+        currentUserId={user?.id}
       />
       <ReceiptImageModal
         isOpen={imageModal !== null}
@@ -235,7 +245,7 @@ export function GroupScopedHistory({ groupId, variant, onBalancesChanged }: Grou
           theme={groupTheme(groupId)}
           back={`/groups/${groupId}`}
           title="History"
-          subtitle={groupName}
+          subtitle={groupPageSubtitle}
         />
         <PageContent className="space-y-4">{listBody}</PageContent>
         {modals}
