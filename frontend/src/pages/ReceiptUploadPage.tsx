@@ -87,6 +87,82 @@ function fromOCRItem(item: OCRLineItem, index: number, allMemberIds: string[]): 
   }
 }
 
+type AssignOption = { value: string; label: string }
+
+function ReceiptLineItemAssignControls({
+  item,
+  isMultiUser,
+  members,
+  twoUserAssignOptions,
+  updateItem,
+  toggleItemMember,
+}: {
+  item: DraftItem
+  isMultiUser: boolean
+  members: GroupMember[]
+  twoUserAssignOptions: AssignOption[]
+  updateItem: (key: string, patch: Partial<DraftItem>) => void
+  toggleItemMember: (itemKey: string, userId: string) => void
+}) {
+  if (isMultiUser) {
+    return (
+      <div className="space-y-2">
+        <SegmentedControl
+          value={item.assigneeMode}
+          onChange={(value) => {
+            if (value === 'equal') {
+              updateItem(item.key, { assigneeMode: 'equal' })
+            } else {
+              updateItem(item.key, {
+                assigneeMode: 'custom',
+                customAssignees: [...members.map((m) => m.user_id)],
+              })
+            }
+          }}
+          options={[
+            { value: 'equal', label: 'Equal' },
+            { value: 'custom', label: 'Custom' },
+          ]}
+          size="md"
+          aria-label="Assign to"
+        />
+        {item.assigneeMode === 'custom' && (
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m) => {
+              const active = item.customAssignees.includes(m.user_id)
+              return (
+                <button
+                  key={m.user_id}
+                  type="button"
+                  onClick={() => toggleItemMember(item.key, m.user_id)}
+                  className={`flex min-h-[44px] items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1.5 text-xs font-bold transition ${
+                    active
+                      ? 'border-violet-400 bg-violet-50 text-violet-700'
+                      : 'border-line bg-white text-ink-secondary'
+                  }`}
+                >
+                  <Avatar name={m.display_name} colorKey={m.user_id} size="xs" />
+                  {m.display_name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <SegmentedControl
+      value={item.assignee}
+      onChange={(value) => updateItem(item.key, { assignee: value })}
+      options={twoUserAssignOptions}
+      size="md"
+      aria-label="Assign to"
+    />
+  )
+}
+
 export function ReceiptUploadPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
@@ -588,8 +664,8 @@ export function ReceiptUploadPage() {
                   />
                 </Field>
               </div>
-              <Field label="Paid by" htmlFor="receipt-paid-by">
-                {members.length === 2 && me && partner ? (
+              {members.length === 2 && me && partner ? (
+                <Field label="Paid by">
                   <SegmentedControl
                     value={paidBy}
                     onChange={setPaidBy}
@@ -599,7 +675,9 @@ export function ReceiptUploadPage() {
                     ]}
                     aria-label="Paid by"
                   />
-                ) : (
+                </Field>
+              ) : (
+                <Field label="Paid by" htmlFor="receipt-paid-by">
                   <Select
                     id="receipt-paid-by"
                     value={paidBy}
@@ -609,8 +687,8 @@ export function ReceiptUploadPage() {
                       <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
                     ))}
                   </Select>
-                )}
-              </Field>
+                </Field>
+              )}
             </Card>
 
             <div className="flex items-center justify-between gap-2 px-0.5">
@@ -631,6 +709,7 @@ export function ReceiptUploadPage() {
                   <button
                     type="button"
                     aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.description || 'item'}`}
                     onClick={() => toggleItemExpanded(item)}
                     className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left"
                   >
@@ -652,35 +731,14 @@ export function ReceiptUploadPage() {
                   {!expanded && (
                     <div className="mt-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                       <Field label="Assign to">
-                        {isMultiUser ? (
-                          <SegmentedControl
-                            value={item.assigneeMode}
-                            onChange={(value) => {
-                              if (value === 'equal') {
-                                updateItem(item.key, { assigneeMode: 'equal' })
-                              } else {
-                                updateItem(item.key, {
-                                  assigneeMode: 'custom',
-                                  customAssignees: [...members.map((m) => m.user_id)],
-                                })
-                              }
-                            }}
-                            options={[
-                              { value: 'equal', label: 'Equal' },
-                              { value: 'custom', label: 'Custom' },
-                            ]}
-                            size="sm"
-                            aria-label="Assign to"
-                          />
-                        ) : (
-                          <SegmentedControl
-                            value={item.assignee}
-                            onChange={(value) => updateItem(item.key, { assignee: value })}
-                            options={twoUserAssignOptions}
-                            size="sm"
-                            aria-label="Assign to"
-                          />
-                        )}
+                        <ReceiptLineItemAssignControls
+                          item={item}
+                          isMultiUser={isMultiUser}
+                          members={members}
+                          twoUserAssignOptions={twoUserAssignOptions}
+                          updateItem={updateItem}
+                          toggleItemMember={toggleItemMember}
+                        />
                       </Field>
                     </div>
                   )}
@@ -754,59 +812,14 @@ export function ReceiptUploadPage() {
                       </div>
 
                       <Field label="Assign to">
-                        {isMultiUser ? (
-                          <div className="space-y-2">
-                            <SegmentedControl
-                              value={item.assigneeMode}
-                              onChange={(value) => {
-                                if (value === 'equal') {
-                                  updateItem(item.key, { assigneeMode: 'equal' })
-                                } else {
-                                  updateItem(item.key, {
-                                    assigneeMode: 'custom',
-                                    customAssignees: [...members.map((m) => m.user_id)],
-                                  })
-                                }
-                              }}
-                              options={[
-                                { value: 'equal', label: 'Equal' },
-                                { value: 'custom', label: 'Custom' },
-                              ]}
-                              size="sm"
-                              aria-label="Assign to"
-                            />
-                            {item.assigneeMode === 'custom' && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {members.map((m) => {
-                                  const active = item.customAssignees.includes(m.user_id)
-                                  return (
-                                    <button
-                                      key={m.user_id}
-                                      type="button"
-                                      onClick={() => toggleItemMember(item.key, m.user_id)}
-                                      className={`flex min-h-[44px] items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1.5 text-xs font-bold transition ${
-                                        active
-                                          ? 'border-violet-400 bg-violet-50 text-violet-700'
-                                          : 'border-line bg-white text-ink-secondary'
-                                      }`}
-                                    >
-                                      <Avatar name={m.display_name} colorKey={m.user_id} size="xs" />
-                                      {m.display_name}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <SegmentedControl
-                            value={item.assignee}
-                            onChange={(value) => updateItem(item.key, { assignee: value })}
-                            options={twoUserAssignOptions}
-                            size="sm"
-                            aria-label="Assign to"
-                          />
-                        )}
+                        <ReceiptLineItemAssignControls
+                          item={item}
+                          isMultiUser={isMultiUser}
+                          members={members}
+                          twoUserAssignOptions={twoUserAssignOptions}
+                          updateItem={updateItem}
+                          toggleItemMember={toggleItemMember}
+                        />
                       </Field>
                     </div>
                   )}
