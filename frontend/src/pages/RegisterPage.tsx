@@ -62,8 +62,8 @@ export function RegisterPage() {
         <div className="absolute -right-10 -top-[30px] h-40 w-40 rounded-full bg-white/25" />
         <div className="absolute -left-5 bottom-[30px] h-[90px] w-[90px] rounded-full bg-pastel-mint/50" />
         <div className="absolute bottom-7 left-6">
-          <div className="mb-3.5 flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[20px] bg-white">
-            <img src="/favicon.png" alt="" className="h-full w-full object-cover" width={56} height={56} />
+          <div className="mb-3.5 h-14 w-14 shrink-0 overflow-hidden rounded-[20px]">
+            <img src="/favicon.png" alt="" className="h-full w-full scale-110 object-cover" width={56} height={56} />
           </div>
           <h1 className="text-[28px] font-extrabold text-ink">Create account</h1>
           <p className="text-ink/70">Get started with SplitEasy</p>
