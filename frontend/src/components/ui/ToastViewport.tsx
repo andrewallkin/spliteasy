@@ -1,21 +1,23 @@
+import { CheckIcon, WarningIcon } from '@/components/ui/icons'
 import { useToast } from '@/context/ToastContext'
 
 export function ToastViewport() {
   const { toasts, removeToast } = useToast()
   return (
-    <div className="fixed left-4 right-4 top-4 z-[60] flex flex-col gap-2 sm:left-auto sm:right-4 sm:w-96">
+    <div className="pointer-events-none fixed inset-x-4 top-[calc(1rem+env(safe-area-inset-top))] z-[80] mx-auto flex max-w-sm flex-col gap-2">
       {toasts.map((toast) => (
         <button
           key={toast.id}
           onClick={() => removeToast(toast.id)}
-          className={`w-full rounded-2xl border px-4 py-3 text-left text-sm font-medium shadow-soft backdrop-blur-sm transition-all duration-200 ${
-            toast.type === 'success'
-              ? 'border-pastel-mint/40 bg-emerald-50/90 text-emerald-800'
-              : toast.type === 'error'
-                ? 'border-pastel-rose/40 bg-rose-50/90 text-rose-800'
-                : 'border-pastel-lavender/40 bg-violet-50/90 text-violet-800'
-          }`}
+          className="pointer-events-auto flex w-full animate-fade-in items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left text-sm font-semibold text-ink shadow-float"
         >
+          <span
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+              toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' : toast.type === 'error' ? 'bg-rose-100 text-rose-600' : 'bg-violet-100 text-violet-600'
+            }`}
+          >
+            {toast.type === 'success' ? <CheckIcon className="h-4 w-4" /> : <WarningIcon className="h-4 w-4" />}
+          </span>
           {toast.message}
         </button>
       ))}

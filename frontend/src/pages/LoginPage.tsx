@@ -5,7 +5,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { Field } from '@/components/ui/Field'
 import { Input } from '@/components/ui/Input'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
@@ -52,38 +52,42 @@ export function LoginPage() {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 shrink-0 overflow-hidden rounded-3xl shadow-glow ring-1 ring-ink-faint/15">
-            <img src="/favicon.png" alt="" className="h-full w-full object-cover" width={64} height={64} />
+    <div className="min-h-screen bg-surface-warm">
+      <div className="relative h-64 overflow-hidden rounded-b-[40px] bg-gradient-to-br from-pastel-lavender via-violet-200 to-pastel-rose">
+        <div className="absolute -right-10 -top-[30px] h-40 w-40 rounded-full bg-white/25" />
+        <div className="absolute -left-5 bottom-[30px] h-[90px] w-[90px] rounded-full bg-pastel-mint/50" />
+        <div className="absolute bottom-7 left-6">
+          <div className="mb-3.5 h-14 w-14 shrink-0 overflow-hidden rounded-[20px]">
+            <img src="/favicon.png" alt="" className="h-full w-full scale-110 object-cover" width={56} height={56} />
           </div>
-          <h1 className="text-2xl font-bold text-ink">Welcome back</h1>
-          <p className="mt-1 text-sm text-ink-secondary">Sign in to SplitEasy</p>
+          <h1 className="text-[28px] font-extrabold text-ink">Welcome back</h1>
+          <p className="text-ink/70">Sign in to SplitEasy</p>
         </div>
-        <Card className="space-y-4">
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-ink">Email</label>
-              <Input type="email" autoComplete="email" placeholder="you@example.com" {...register('email')} />
-              {errors.email && <p className="mt-1.5 text-xs text-rose-500">{errors.email.message}</p>}
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-ink">Password</label>
-              <Input type="password" autoComplete="current-password" placeholder="Your password" {...register('password')} />
-              {errors.password && <p className="mt-1.5 text-xs text-rose-500">{errors.password.message}</p>}
-            </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing in...' : 'Sign in'}
-            </Button>
-          </form>
-          <p className="text-center text-sm text-ink-secondary">
-            Need an account?{' '}
-            <Link to="/register" className="font-medium text-pastel-purple-deep hover:underline">
-              Create one
-            </Link>
-          </p>
-        </Card>
+      </div>
+      <div className="mx-auto max-w-sm px-5 pt-6">
+        <form className="space-y-4" onSubmit={onSubmit}>
+          <Field label="Email" htmlFor="login-email" error={errors.email?.message}>
+            <Input id="login-email" type="email" autoComplete="email" placeholder="you@example.com" {...register('email')} />
+          </Field>
+          <Field label="Password" htmlFor="login-password" error={errors.password?.message}>
+            <Input
+              id="login-password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Your password"
+              {...register('password')}
+            />
+          </Field>
+          <Button type="submit" variant="primary" size="lg" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Signing in...' : 'Sign in'}
+          </Button>
+        </form>
+        <p className="mt-4 text-center text-sm text-ink-secondary">
+          Need an account?{' '}
+          <Link to="/register" className="font-bold text-violet-600">
+            Create one
+          </Link>
+        </p>
       </div>
     </div>
   )

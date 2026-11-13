@@ -6,10 +6,7 @@ type Props = HTMLAttributes<HTMLDivElement> & {
 
 export function Card({ children, className = '', ...props }: Props) {
   return (
-    <div
-      className={`rounded-3xl border border-white/60 bg-white/80 p-5 shadow-soft backdrop-blur-sm ${className}`}
-      {...props}
-    >
+    <div className={`rounded-3xl border-[1.5px] border-line bg-white p-4 ${className}`} {...props}>
       {children}
     </div>
   )

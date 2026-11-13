@@ -1,38 +1,33 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { createGroup, listGroups } from '@/api/groups'
+import { createGroup, getBalances, getGroupMembers, listGroups } from '@/api/groups'
+import { AmountText } from '@/components/ui/AmountText'
+import { AvatarStack } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Input'
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { PlusIcon, UsersIcon } from '@/components/ui/icons'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
-import type { Group } from '@/types/models'
+import { describeBalance } from '@/lib/balance'
+import { groupTheme } from '@/lib/theme'
+import type { Group, GroupBalanceResponse, GroupMember } from '@/types/models'
 import { getErrorMessage } from '@/utils/errors'
 
-const groupColors = [
-  'from-pastel-purple/20 to-pastel-lavender/20',
-  'from-pastel-mint/20 to-emerald-100/20',
-  'from-pastel-rose/20 to-pink-100/20',
-  'from-pastel-sky/20 to-blue-100/20',
-  'from-pastel-peach/20 to-orange-100/20',
-]
-
-const groupIcons = [
-  'text-pastel-purple-deep',
-  'text-pastel-mint-deep',
-  'text-pastel-rose-deep',
-  'text-blue-500',
-  'text-orange-500',
-]
-
+type GroupExtras = { members: GroupMember[]; balance: GroupBalanceResponse }
 
 export function GroupListPage() {
   const [groups, setGroups] = useState<Group[]>([])
   const [name, setName] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [extras, setExtras] = useState<Record<string, GroupExtras>>({})
+  const [enrichmentFailedIds, setEnrichmentFailedIds] = useState<Set<string>>(() => new Set())
   const { addToast } = useToast()
+  const { user } = useAuth()
 
   useEffect(() => {
     async function load() {
@@ -46,6 +41,26 @@ export function GroupListPage() {
     }
     void load()
   }, [addToast])
+
+  useEffect(() => {
+    let cancelled = false
+    for (const group of groups) {
+      if (extras[group.id] || enrichmentFailedIds.has(group.id)) continue
+      Promise.all([getGroupMembers(group.id), getBalances(group.id)])
+        .then(([members, balance]) => {
+          if (!cancelled) setExtras((prev) => ({ ...prev, [group.id]: { members, balance } }))
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setEnrichmentFailedIds((prev) => new Set(prev).add(group.id))
+          }
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refetch when the group list changes
+  }, [groups])
 
   async function onCreateGroup() {
     const trimmed = name.trim()
@@ -68,86 +83,145 @@ export function GroupListPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold text-ink">Your Groups</h2>
-        <p className="mt-0.5 text-sm text-ink-secondary">Manage and split expenses</p>
+      <div className="px-5 pt-[calc(1.5rem+env(safe-area-inset-top))]">
+        <p className="text-sm text-ink-secondary">Hey {user?.display_name ?? 'there'} 👋</p>
+        <h1 className="mt-1 text-[28px] font-extrabold tracking-tight text-ink">
+          Split it{' '}
+          <span className="bg-[linear-gradient(transparent_60%,#fecdd3_60%)]">easy</span>.
+        </h1>
       </div>
 
-      <Card className="space-y-3">
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void onCreateGroup()
-          }}
-        >
-          <Input
-            fullWidth={false}
-            className="min-w-0 flex-1"
-            placeholder="New group name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            aria-label="Group name"
-          />
-          <Button className="shrink-0" type="submit" disabled={isCreating}>
-            {isCreating ? 'Creating...' : 'Create'}
-          </Button>
-        </form>
-      </Card>
+      <div className="px-4">
+        {!showCreate ? (
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-[22px] border-2 border-dashed border-pastel-lavender bg-violet-50/60 px-4 py-3.5 font-bold text-violet-600"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Start a new group
+          </button>
+        ) : (
+          <div className="rounded-[22px] border-2 border-dashed border-pastel-lavender bg-violet-50/60 px-4 py-3.5">
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void onCreateGroup()
+              }}
+            >
+              <Input
+                fullWidth={false}
+                className="min-w-0 flex-1"
+                placeholder="New group name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                aria-label="Group name"
+                autoFocus
+              />
+              <Button className="shrink-0" type="submit" disabled={isCreating}>
+                {isCreating ? 'Creating...' : 'Create'}
+              </Button>
+            </form>
+          </div>
+        )}
+      </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-8">
-          <LoadingSpinner />
+        <div className="space-y-3 px-4">
+          <Skeleton className="h-28 rounded-[26px]" />
+          <Skeleton className="h-28 rounded-[26px]" />
+          <Skeleton className="h-28 rounded-[26px]" />
         </div>
       ) : groups.length === 0 ? (
-        <Card className="py-8 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-pastel-lavender/30">
-            <svg className="h-7 w-7 text-pastel-purple" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-            </svg>
-          </div>
-          <p className="text-sm font-medium text-ink">No groups yet</p>
-          <p className="mt-1 text-xs text-ink-tertiary">Create your first group above to get started.</p>
-        </Card>
+        <div className="px-4">
+          <EmptyState
+            icon={<UsersIcon className="h-8 w-8" />}
+            title="No groups yet"
+            description="Create your first group above to get started."
+          />
+        </div>
       ) : (
-        <div className="space-y-3">
-          {groups.map((group, index) => (
-            <Link key={group.id} to={`/groups/${group.id}`} className="block">
-              <Card className="transition-all duration-200 hover:shadow-soft-lg hover:-translate-y-0.5">
-                <div className="flex items-center gap-4">
-                  <div className={`flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br ${groupColors[index % groupColors.length]}`}>
-                    {group.profile_picture ? (
-                      <img
-                        src={group.profile_picture}
-                        alt={group.name}
-                        className="h-full w-full object-cover"
-                        onError={async () => {
-                          try {
-                            setGroups(await listGroups())
-                          } catch {
-                            // ignore
-                          }
-                        }}
-                      />
-                    ) : (
-                    <svg className={`h-6 w-6 ${groupIcons[index % groupIcons.length]}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-                    </svg>
-                    )}
+        <div className="space-y-3 px-4">
+          {groups.map((group) => {
+            const theme = groupTheme(group.id)
+            const data = extras[group.id]
+            const enrichmentFailed = enrichmentFailedIds.has(group.id)
+            const summary = data ? describeBalance(data.members, data.balance, user?.id) : null
+            const people = data?.members.map((m) => ({
+              id: m.user_id,
+              name: m.display_name,
+              src: m.profile_picture,
+            })) ?? []
+
+            return (
+              <Link key={group.id} to={`/groups/${group.id}`} className="block">
+                <div className={`relative overflow-hidden rounded-[26px] p-4 ${theme.card}`}>
+                  <span
+                    className={`pointer-events-none absolute -bottom-8 -right-6 h-28 w-28 rounded-full opacity-60 ${theme.blob}`}
+                    aria-hidden="true"
+                  />
+                  <div className="relative space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white/70">
+                        {group.profile_picture ? (
+                          <img
+                            src={group.profile_picture}
+                            alt={group.name}
+                            className="h-full w-full object-cover"
+                            onError={async () => {
+                              try {
+                                setGroups(await listGroups())
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                          />
+                        ) : (
+                          <UsersIcon className={`h-6 w-6 ${theme.text}`} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-extrabold text-[17px] text-ink">{group.name}</p>
+                        <span className="mt-1 inline-block rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-bold text-ink-secondary">
+                          Created{' '}
+                          {new Date(group.created_at).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      {data ? (
+                        people.length > 0 ? (
+                          <AvatarStack people={people} />
+                        ) : (
+                          <span />
+                        )
+                      ) : enrichmentFailed ? null : (
+                        <Skeleton className="h-7 w-20 rounded-full" />
+                      )}
+                      {data ? (
+                        summary ? (
+                          summary.tone === 'settled' ? (
+                            <p className="text-xs font-bold text-emerald-700">All settled up</p>
+                          ) : (
+                            <div className="text-right">
+                              <p className="text-[11px] font-semibold text-ink-secondary">{summary.label}</p>
+                              <AmountText amount={summary.amount} tone={summary.tone} size="sm" />
+                            </div>
+                          )
+                        ) : null
+                      ) : enrichmentFailed ? null : (
+                        <Skeleton className="h-4 w-16 rounded-full" />
+                      )}
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-ink">{group.name}</p>
-                    <p className="mt-0.5 text-xs text-ink-tertiary">
-                      Created {new Date(group.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </p>
-                  </div>
-                  <svg className="h-5 w-5 text-ink-faint" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                  </svg>
                 </div>
-              </Card>
-            </Link>
-          ))}
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>

@@ -3,13 +3,22 @@ import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-route
 
 import { deleteReceipt, getGroupMembers, updateReceiptItems, uploadReceipt } from '@/api/groups'
 import { api } from '@/api/client'
+import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Field } from '@/components/ui/Field'
+import { CameraIcon, CheckIcon, PlusIcon, TrashIcon, WarningIcon } from '@/components/ui/icons'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
+import { PageContent, PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
+import { Select } from '@/components/ui/Select'
+import { StickyFooter } from '@/components/ui/StickyFooter'
 import { useToast } from '@/context/ToastContext'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
+import { groupTheme } from '@/lib/theme'
 import type { GroupMember, OCRLineItem, Receipt } from '@/types/models'
 import { DEFAULT_CURRENCY, formatCurrency } from '@/utils/currency'
 import { getErrorMessage } from '@/utils/errors'
@@ -78,6 +87,82 @@ function fromOCRItem(item: OCRLineItem, index: number, allMemberIds: string[]): 
   }
 }
 
+type AssignOption = { value: string; label: string }
+
+function ReceiptLineItemAssignControls({
+  item,
+  isMultiUser,
+  members,
+  twoUserAssignOptions,
+  updateItem,
+  toggleItemMember,
+}: {
+  item: DraftItem
+  isMultiUser: boolean
+  members: GroupMember[]
+  twoUserAssignOptions: AssignOption[]
+  updateItem: (key: string, patch: Partial<DraftItem>) => void
+  toggleItemMember: (itemKey: string, userId: string) => void
+}) {
+  if (isMultiUser) {
+    return (
+      <div className="space-y-2">
+        <SegmentedControl
+          value={item.assigneeMode}
+          onChange={(value) => {
+            if (value === 'equal') {
+              updateItem(item.key, { assigneeMode: 'equal' })
+            } else {
+              updateItem(item.key, {
+                assigneeMode: 'custom',
+                customAssignees: [...members.map((m) => m.user_id)],
+              })
+            }
+          }}
+          options={[
+            { value: 'equal', label: 'Equal' },
+            { value: 'custom', label: 'Custom' },
+          ]}
+          size="md"
+          aria-label="Assign to"
+        />
+        {item.assigneeMode === 'custom' && (
+          <div className="flex flex-wrap gap-1.5">
+            {members.map((m) => {
+              const active = item.customAssignees.includes(m.user_id)
+              return (
+                <button
+                  key={m.user_id}
+                  type="button"
+                  onClick={() => toggleItemMember(item.key, m.user_id)}
+                  className={`flex min-h-[44px] items-center gap-1.5 rounded-full border-[1.5px] px-3 py-1.5 text-xs font-bold transition ${
+                    active
+                      ? 'border-violet-400 bg-violet-50 text-violet-700'
+                      : 'border-line bg-white text-ink-secondary'
+                  }`}
+                >
+                  <Avatar name={m.display_name} colorKey={m.user_id} size="xs" />
+                  {m.display_name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <SegmentedControl
+      value={item.assignee}
+      onChange={(value) => updateItem(item.key, { assignee: value })}
+      options={twoUserAssignOptions}
+      size="md"
+      aria-label="Assign to"
+    />
+  )
+}
+
 export function ReceiptUploadPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
@@ -99,7 +184,10 @@ export function ReceiptUploadPage() {
   const [nextKey, setNextKey] = useState(0)
   const libraryInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const [collapsedItemKeys, setCollapsedItemKeys] = useState<Set<string>>(() => new Set())
+  const [forceExpandedItemKeys, setForceExpandedItemKeys] = useState<Set<string>>(() => new Set())
 
+  const theme = groupTheme(id)
   const isMultiUser = members.length > 2
   const stepIndex = ['capture', 'processing', 'confirm', 'summary'].indexOf(step) + 1
 
@@ -407,393 +495,449 @@ export function ReceiptUploadPage() {
 
   const currency = receipt?.currency ?? DEFAULT_CURRENCY
 
+  function isItemUncertain(item: DraftItem): boolean {
+    return item.confidence > 0 && item.confidence < 0.85
+  }
+
+  function isItemExpanded(item: DraftItem): boolean {
+    if (collapsedItemKeys.has(item.key)) return false
+    if (forceExpandedItemKeys.has(item.key)) return true
+    return isItemUncertain(item)
+  }
+
+  function toggleItemExpanded(item: DraftItem) {
+    const expanded = isItemExpanded(item)
+    if (expanded) {
+      setCollapsedItemKeys((prev) => new Set(prev).add(item.key))
+      setForceExpandedItemKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(item.key)
+        return next
+      })
+    } else {
+      setCollapsedItemKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(item.key)
+        return next
+      })
+      setForceExpandedItemKeys((prev) => new Set(prev).add(item.key))
+    }
+  }
+
+  function onAddItemClick() {
+    const key = String(nextKey)
+    addItem()
+    setForceExpandedItemKeys((prev) => new Set(prev).add(key))
+    setCollapsedItemKeys((prev) => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }
+
+  const twoUserAssignOptions = me && partner
+    ? [
+        { value: me.user_id, label: 'Me' },
+        { value: 'split', label: 'Split' },
+        { value: partner.user_id, label: partner.display_name },
+      ]
+    : []
+
   return (
-    <div className="space-y-4">
-      {/* Progress bar */}
-      <Card className="space-y-2">
-        <div className="flex items-center gap-2">
+    <>
+      <PageHeader
+        theme={theme}
+        back={`/groups/${id}`}
+        backIcon="close"
+        backLabel="Close"
+        title={stepLabels[step]}
+        right={<span className="text-[13px] font-bold">Step {stepIndex} of 4</span>}
+      >
+        <div className="flex gap-1.5">
           {[1, 2, 3, 4].map((s) => (
             <div
               key={s}
-              className={`h-1.5 flex-1 rounded-full transition-colors ${s <= stepIndex ? 'bg-pastel-purple-deep' : 'bg-ink-faint/30'}`}
+              className={`h-1.5 flex-1 rounded-full ${s <= stepIndex ? 'bg-white' : 'bg-white/40'}`}
             />
           ))}
         </div>
-        <p className="text-xs text-ink-tertiary">Step {stepIndex} of 4</p>
-        <h2 className="text-lg font-bold text-ink">{stepLabels[step]}</h2>
-      </Card>
+      </PageHeader>
 
-      {/* Capture */}
-      {step === 'capture' && (
-        <Card className="space-y-4">
-          <p className="text-xs text-ink-tertiary">
-            Multi-page receipts: add several photos from your library, or take photos one at a time (tap Take photo again to add more).
-          </p>
-          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-ink-faint/40 bg-surface-secondary p-6 transition hover:border-pastel-purple/50 hover:bg-pastel-lavender/10">
-            <svg className="h-10 w-10 text-ink-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
-            </svg>
-            <div className="flex w-full flex-col gap-2 sm:flex-row">
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                onClick={() => libraryInputRef.current?.click()}
-              >
-                Choose photos
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                onClick={() => cameraInputRef.current?.click()}
-              >
-                Take photo
-              </Button>
+      <PageContent>
+
+        {/* Capture */}
+        {step === 'capture' && (
+          <>
+            <p className="text-xs text-ink-tertiary">
+              Multi-page receipts: add several photos from your library, or take photos one at a time (tap Take photo again to add more).
+            </p>
+            <div className="rounded-3xl border-2 border-dashed border-ink-faint/60 bg-white px-6 py-10 text-center">
+              <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[22px] ${theme.tile}`}>
+                <CameraIcon className="h-8 w-8" />
+              </div>
+              <div className="flex w-full flex-col gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => libraryInputRef.current?.click()}
+                >
+                  Choose photos
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => cameraInputRef.current?.click()}
+                >
+                  Take photo
+                </Button>
+              </div>
             </div>
-          </div>
-          {files.length > 0 && (
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate text-sm font-medium text-ink-secondary">
-                {files.length === 1 ? files[0].name : `${files.length} images selected`}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 text-sm font-semibold text-pastel-purple-deep underline decoration-pastel-purple/40 underline-offset-2 transition hover:text-pastel-purple"
-                onClick={() => setFiles([])}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-          <input
-            ref={libraryInputRef}
-            type="file"
-            accept={RECEIPT_IMAGE_ACCEPT}
-            multiple
-            className="hidden"
-            onChange={appendFilesFromInput}
+            {files.length > 0 && (
+              <Card className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-sm font-medium text-ink-secondary">
+                  {files.length === 1 ? files[0].name : `${files.length} images selected`}
+                </span>
+                <button
+                  type="button"
+                  className="flex min-h-[44px] shrink-0 items-center text-sm font-semibold text-pastel-purple-deep underline decoration-pastel-purple/40 underline-offset-2 transition hover:text-pastel-purple"
+                  onClick={() => setFiles([])}
+                >
+                  Clear
+                </button>
+              </Card>
+            )}
+            <input
+              ref={libraryInputRef}
+              type="file"
+              accept={RECEIPT_IMAGE_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={appendFilesFromInput}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept={RECEIPT_IMAGE_ACCEPT}
+              capture="environment"
+              className="hidden"
+              onChange={appendFilesFromInput}
+            />
+          </>
+        )}
+
+        {/* Processing */}
+        {step === 'processing' && (
+          <EmptyState
+            icon={<LoadingSpinner />}
+            title={`Analyzing your receipt${files.length > 1 ? 's' : ''}...`}
           />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept={RECEIPT_IMAGE_ACCEPT}
-            capture="environment"
-            className="hidden"
-            onChange={appendFilesFromInput}
-          />
-          <Button onClick={onProcessReceipt} disabled={files.length === 0} className="w-full">
-            Process Receipt
-          </Button>
-        </Card>
-      )}
+        )}
 
-      {/* Processing */}
-      {step === 'processing' && (
-        <Card className="flex flex-col items-center gap-3 py-8">
-          <LoadingSpinner />
-          <p className="text-sm text-ink-secondary">Analyzing your receipt{files.length > 1 ? 's' : ''}...</p>
-        </Card>
-      )}
+        {/* Confirm + Assign */}
+        {step === 'confirm' && (
+          <div className="space-y-3 pb-4">
+            <Card className="space-y-3">
+              <Field label="Nickname (optional)" htmlFor="receipt-nickname">
+                <Input
+                  id="receipt-nickname"
+                  placeholder="e.g. Groceries with Sarah"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                />
+              </Field>
+              <div className="grid grid-cols-[1fr_120px] gap-2">
+                <Field label="Merchant / Shop" htmlFor="receipt-merchant">
+                  <Input
+                    id="receipt-merchant"
+                    value={merchantName}
+                    onChange={(e) => setMerchantName(e.target.value)}
+                  />
+                </Field>
+                <Field label="Total Amount" htmlFor="receipt-total">
+                  <Input
+                    id="receipt-total"
+                    inputMode="decimal"
+                    value={totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
+                  />
+                </Field>
+              </div>
+              {members.length === 2 && me && partner ? (
+                <Field label="Paid by">
+                  <SegmentedControl
+                    value={paidBy}
+                    onChange={setPaidBy}
+                    options={[
+                      { value: me.user_id, label: 'Me' },
+                      { value: partner.user_id, label: partner.display_name },
+                    ]}
+                    aria-label="Paid by"
+                  />
+                </Field>
+              ) : (
+                <Field label="Paid by" htmlFor="receipt-paid-by">
+                  <Select
+                    id="receipt-paid-by"
+                    value={paidBy}
+                    onChange={(e) => setPaidBy(e.target.value)}
+                  >
+                    {members.map((m) => (
+                      <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </Card>
 
-      {/* Confirm + Assign */}
-      {step === 'confirm' && (
-        <div className="space-y-4">
-          {/* Receipt-level fields */}
-          <Card className="space-y-3">
-            <h3 className="text-sm font-bold uppercase tracking-wide text-ink-tertiary">Receipt Details</h3>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-tertiary">Nickname (optional)</label>
-              <Input
-                placeholder="e.g. Groceries with Sarah"
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-              />
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <h3 className="text-sm font-extrabold text-ink">Items · {items.length}</h3>
+              <span className="text-xs text-ink-tertiary">Tap to edit</span>
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-tertiary">Merchant / Shop</label>
-              <Input
-                value={merchantName}
-                onChange={(e) => setMerchantName(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-tertiary">Total Amount</label>
-              <Input
-                inputMode="decimal"
-                value={totalAmount}
-                onChange={(e) => setTotalAmount(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-tertiary">Paid by</label>
-              <select
-                value={paidBy}
-                onChange={(e) => setPaidBy(e.target.value)}
-                className="w-full rounded-2xl border border-surface-tertiary bg-surface-primary px-3 py-2 text-base text-ink shadow-soft focus:border-pastel-purple focus:outline-none"
-              >
-                {members.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>{m.display_name}</option>
-                ))}
-              </select>
-            </div>
-          </Card>
 
-          {/* Line items */}
-          <Card className="space-y-3">
-            <h3 className="text-sm font-bold uppercase tracking-wide text-ink-tertiary">Line Items</h3>
-            {items.map((item) => (
-              <div
-                key={item.key}
-                className={`space-y-2 rounded-2xl border p-4 ${item.confidence < 0.85 && item.confidence > 0 ? 'border-pastel-peach/60 bg-orange-50/50' : 'border-ink-faint/30'}`}
-              >
-                {/* Description + confidence badge + delete */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="Description"
-                      value={item.description}
-                      onChange={(e) => updateItem(item.key, { description: e.target.value })}
-                    />
-                  </div>
-                  {item.confidence > 0 && item.confidence < 0.85 && (
-                    <span className="shrink-0 rounded-xl bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-orange-600">
-                      Uncertain
-                    </span>
-                  )}
+            {items.map((item) => {
+              const uncertain = isItemUncertain(item)
+              const expanded = isItemExpanded(item)
+              const lineTotal = parseFloat(item.final_line_total) || 0
+
+              return (
+                <div
+                  key={item.key}
+                  className={`rounded-[20px] border-[1.5px] p-3 ${uncertain ? 'border-orange-200 bg-orange-50/60' : 'border-line bg-white'}`}
+                >
                   <button
                     type="button"
-                    onClick={() => deleteItem(item.key)}
-                    className="shrink-0 rounded-xl p-1.5 text-ink-faint transition hover:bg-surface-secondary hover:text-ink-secondary"
-                    aria-label="Delete item"
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${item.description || 'item'}`}
+                    onClick={() => toggleItemExpanded(item)}
+                    className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left"
                   >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">
+                      {item.description || 'No description'}
+                    </span>
+                    <span className="shrink-0 text-sm font-extrabold tabular-nums text-ink">
+                      {formatCurrency(lineTotal, currency)}
+                    </span>
                   </button>
-                </div>
 
-                {/* Numeric fields grid */}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <div>
-                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Qty</label>
-                    <Input
-                      inputMode="numeric"
-                      value={item.quantity}
-                      onChange={(e) => updateItem(item.key, { quantity: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Price/unit</label>
-                    <Input
-                      inputMode="decimal"
-                      value={item.price_per_unit}
-                      onChange={(e) => updateItem(item.key, { price_per_unit: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Pre-Discount</label>
-                    <Input
-                      inputMode="decimal"
-                      value={item.line_subtotal}
-                      onChange={(e) => updateItem(item.key, { line_subtotal: e.target.value })}
-                      readOnly={item.isManual}
-                      className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Discount</label>
-                    <Input
-                      inputMode="decimal"
-                      value={item.line_discount}
-                      onChange={(e) => updateItem(item.key, { line_discount: e.target.value })}
-                    />
-                  </div>
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">After Discount</label>
-                    <Input
-                      inputMode="decimal"
-                      value={item.final_line_total}
-                      onChange={(e) => updateItem(item.key, { final_line_total: e.target.value })}
-                      readOnly={item.isManual}
-                      className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''}
-                    />
-                  </div>
-                </div>
+                  {uncertain && !expanded && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] font-extrabold text-orange-600">
+                      <WarningIcon className="h-4 w-4" />
+                      Uncertain
+                    </p>
+                  )}
 
-                {/* Split assignment */}
-                <div>
-                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-ink-tertiary">Assign to</label>
-                  {isMultiUser ? (
-                    // 3+ user mode: Equal / Custom toggle + member buttons
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
+                  {!expanded && (
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                      <Field label="Assign to">
+                        <ReceiptLineItemAssignControls
+                          item={item}
+                          isMultiUser={isMultiUser}
+                          members={members}
+                          twoUserAssignOptions={twoUserAssignOptions}
+                          updateItem={updateItem}
+                          toggleItemMember={toggleItemMember}
+                        />
+                      </Field>
+                    </div>
+                  )}
+
+                  {expanded && (
+                    <div className="mt-3 space-y-3">
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <Input
+                            placeholder="Description"
+                            value={item.description}
+                            onChange={(e) => updateItem(item.key, { description: e.target.value })}
+                          />
+                        </div>
+                        {uncertain && (
+                          <span className="flex shrink-0 items-center gap-1 text-[10px] font-bold text-orange-600">
+                            <WarningIcon className="h-4 w-4" />
+                            Uncertain
+                          </span>
+                        )}
                         <button
                           type="button"
-                          onClick={() => updateItem(item.key, { assigneeMode: 'equal' })}
-                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
-                            item.assigneeMode === 'equal'
-                              ? 'bg-pastel-purple-deep text-white'
-                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-                          }`}
+                          onClick={() => deleteItem(item.key)}
+                          aria-label="Delete item"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-ink-tertiary transition hover:bg-surface-secondary hover:text-ink"
                         >
-                          Equal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateItem(item.key, {
-                            assigneeMode: 'custom',
-                            customAssignees: [...members.map((m) => m.user_id)],
-                          })}
-                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
-                            item.assigneeMode === 'custom'
-                              ? 'bg-pastel-purple-deep text-white'
-                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-                          }`}
-                        >
-                          Custom
+                          <TrashIcon className="h-4 w-4" />
                         </button>
                       </div>
-                      {item.assigneeMode === 'custom' && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {members.map((m) => (
-                            <button
-                              key={m.user_id}
-                              type="button"
-                              onClick={() => toggleItemMember(item.key, m.user_id)}
-                              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                                item.customAssignees.includes(m.user_id)
-                                  ? 'bg-pastel-lavender/30 text-pastel-purple-deep border border-pastel-purple'
-                                  : 'bg-surface-secondary text-ink-tertiary border border-transparent hover:bg-surface-tertiary'
-                              }`}
-                            >
-                              {m.display_name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    // 2-user mode: Me / Split / Partner (unchanged)
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { label: me?.display_name ?? 'Me', value: me?.user_id ?? 'me' },
-                        { label: 'Split', value: 'split' },
-                        { label: partner?.display_name ?? 'Partner', value: partner?.user_id ?? 'partner' },
-                      ].map(({ label, value }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => updateItem(item.key, { assignee: value })}
-                          className={`rounded-xl px-2 py-2 text-xs font-semibold transition-all ${
-                            item.assignee === value
-                              ? 'bg-pastel-purple-deep text-white'
-                              : 'bg-surface-secondary text-ink-secondary hover:bg-surface-tertiary'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <Field label="Qty">
+                          <Input
+                            inputMode="numeric"
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.key, { quantity: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Price/unit">
+                          <Input
+                            inputMode="decimal"
+                            value={item.price_per_unit}
+                            onChange={(e) => updateItem(item.key, { price_per_unit: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Pre-Discount">
+                          <Input
+                            inputMode="decimal"
+                            value={item.line_subtotal}
+                            onChange={(e) => updateItem(item.key, { line_subtotal: e.target.value })}
+                            readOnly={item.isManual}
+                            className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''}
+                          />
+                        </Field>
+                        <Field label="Discount">
+                          <Input
+                            inputMode="decimal"
+                            value={item.line_discount}
+                            onChange={(e) => updateItem(item.key, { line_discount: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="After Discount" className="col-span-2">
+                          <Input
+                            inputMode="decimal"
+                            value={item.final_line_total}
+                            onChange={(e) => updateItem(item.key, { final_line_total: e.target.value })}
+                            readOnly={item.isManual}
+                            className={item.isManual ? 'bg-surface-secondary text-ink-tertiary' : ''}
+                          />
+                        </Field>
+                      </div>
+
+                      <Field label="Assign to">
+                        <ReceiptLineItemAssignControls
+                          item={item}
+                          isMultiUser={isMultiUser}
+                          members={members}
+                          twoUserAssignOptions={twoUserAssignOptions}
+                          updateItem={updateItem}
+                          toggleItemMember={toggleItemMember}
+                        />
+                      </Field>
                     </div>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             <button
               type="button"
-              onClick={addItem}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-ink-faint/30 py-3 text-sm font-medium text-ink-tertiary transition hover:border-pastel-purple/40 hover:text-ink-secondary"
+              onClick={onAddItemClick}
+              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line py-3 text-sm font-bold text-ink-tertiary transition hover:border-violet-200 hover:text-ink-secondary"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
+              <PlusIcon className="h-4 w-4" />
               Add item
             </button>
-          </Card>
 
-          {/* Split summary — 3+ user mode */}
-          {isMultiUser && splitSummaryMulti && (
-            <Card className="space-y-2 bg-surface-secondary">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
-              {members.map((m) => (
-                <div key={m.user_id} className="flex justify-between text-sm">
-                  <span className="text-ink-secondary">{m.display_name}</span>
+            {isMultiUser && splitSummaryMulti && (
+              <div className={`space-y-2 rounded-3xl border-[1.5px] p-4 ${theme.soft} ${theme.softBorder}`}>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+                {members.map((m) => (
+                  <div key={m.user_id} className="flex justify-between text-sm">
+                    <span className="text-ink-secondary">{m.display_name}</span>
+                    <span className="font-bold tabular-nums text-ink">
+                      {formatCurrency(splitSummaryMulti[m.user_id] ?? 0, currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!isMultiUser && splitSummary2 && me && partner && (
+              <div className={`space-y-2 rounded-3xl border-[1.5px] p-4 ${theme.soft} ${theme.softBorder}`}>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-ink-secondary">{partner.display_name} share</span>
                   <span className="font-bold tabular-nums text-ink">
-                    {formatCurrency(splitSummaryMulti[m.user_id] ?? 0, currency)}
+                    {formatCurrency(splitSummary2.partnerShare, currency)}
                   </span>
                 </div>
-              ))}
-            </Card>
-          )}
+                <div className="flex justify-between text-sm">
+                  <span className="text-ink-secondary">{me.display_name} share</span>
+                  <span className="font-bold tabular-nums text-ink">
+                    {formatCurrency(splitSummary2.meShare, currency)}
+                  </span>
+                </div>
+                <p className="pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
+                <div className="flex justify-between text-sm font-extrabold">
+                  <span className="text-ink-secondary">{partner.display_name} owes</span>
+                  <span className="tabular-nums text-ink">
+                    {formatCurrency(splitSummary2.partnerOwes, currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm font-extrabold">
+                  <span className="text-ink-secondary">{me.display_name} owes</span>
+                  <span className="tabular-nums text-ink">
+                    {formatCurrency(splitSummary2.meOwes, currency)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Split summary — 2-user mode (unchanged) */}
-          {!isMultiUser && splitSummary2 && me && partner && (
-            <Card className="space-y-2 bg-surface-secondary">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">Split Summary</h3>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Allocation</p>
-              <div className="flex justify-between text-sm">
-                <span className="text-ink-secondary">{partner.display_name} share</span>
-                <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary2.partnerShare, currency)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-ink-secondary">{me.display_name} share</span>
-                <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary2.meShare, currency)}
-                </span>
-              </div>
-              <p className="pt-1 text-[10px] font-bold uppercase tracking-wide text-ink-tertiary">Owes</p>
-              <div className="flex justify-between text-sm">
-                <span className="text-ink-secondary">{partner.display_name} owes</span>
-                <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary2.partnerOwes, currency)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-ink-secondary">{me.display_name} owes</span>
-                <span className="font-bold tabular-nums text-ink">
-                  {formatCurrency(splitSummary2.meOwes, currency)}
-                </span>
-              </div>
-            </Card>
-          )}
+        {/* Summary */}
+        {step === 'summary' && (
+          <EmptyState
+            tone="success"
+            icon={<CheckIcon className="h-8 w-8" />}
+            title="Receipt saved and assigned!"
+            action={
+              <Button variant="dark" size="lg" className="w-full" onClick={() => navigate(`/groups/${id}`)}>
+                Back to group
+              </Button>
+            }
+          />
+        )}
+      </PageContent>
 
+      {step === 'capture' && (
+        <StickyFooter>
           <Button
-            onClick={onConfirm}
-            disabled={isSaving || items.length === 0 || !paidBy}
-            className="w-full"
+            variant="accent"
+            theme={theme}
+            size="lg"
+            className="flex-1"
+            onClick={onProcessReceipt}
+            disabled={files.length === 0}
           >
-            {isSaving ? 'Saving...' : 'Confirm Receipt'}
+            Process Receipt
           </Button>
+        </StickyFooter>
+      )}
+
+      {step === 'confirm' && (
+        <StickyFooter>
           <Button
-            variant="ghost"
+            variant="secondary"
+            className="flex-1"
             onClick={onCancel}
             disabled={isSaving}
-            className="w-full"
           >
             Cancel
           </Button>
-        </div>
-      )}
-
-      {/* Summary */}
-      {step === 'summary' && (
-        <Card className="space-y-4 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-pastel-mint/30">
-            <svg className="h-7 w-7 text-pastel-mint-deep" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <p className="font-semibold text-ink">Receipt saved and assigned!</p>
-          <Button onClick={() => navigate(`/groups/${id}`)} className="w-full">Back to group</Button>
-        </Card>
+          <Button
+            variant="accent"
+            theme={theme}
+            className="flex-[2]"
+            onClick={onConfirm}
+            disabled={isSaving || items.length === 0 || !paidBy}
+          >
+            {isSaving ? 'Saving...' : 'Confirm Receipt'}
+          </Button>
+        </StickyFooter>
       )}
 
       <ConfirmDialog {...discardConfirm.dialogProps} />
-    </div>
+    </>
   )
 }
