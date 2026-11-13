@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 
+from pydantic import ValidationError
+
 from app.config import get_settings
 from app.schemas.ocr import (
     SYSTEM_PROMPT,
@@ -11,8 +13,20 @@ from app.schemas.ocr import (
     OCRLineItemExtracted,
     ReceiptOCRResult,
 )
+from app.services.receipt_math import (
+    ReceiptExtraction,
+    build_retry_user_content,
+    prefer_attempt,
+    reconcile_receipt,
+)
 
-settings = get_settings()
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+SCHEMA_REPAIR = (
+    "Your previous response was not valid against the required schema. "
+    "Validation errors:\n{errors}\n"
+    "Return ONLY corrected JSON matching the schema exactly. No prose."
+)
 
 
 def image_bytes_to_jpeg_bytes(body: bytes, content_type: str = "") -> bytes:
@@ -49,28 +63,21 @@ def image_bytes_to_jpeg_base64(body: bytes, content_type: str = "") -> str:
     return base64.b64encode(image_bytes_to_jpeg_bytes(body, content_type)).decode()
 
 
-def _parsed_receipt_from_response(rsp: object) -> ReceiptOCRResult:
-    """Walk Responses API output to find the parsed ReceiptOCRResult."""
-    for output in rsp.output:  # type: ignore[attr-defined]
-        if output.type != "message":
-            continue
-        for item in output.content:
-            if item.type != "output_text":
-                continue
-            if item.parsed is not None:
-                return item.parsed  # type: ignore[return-value]
-    raise RuntimeError(f"No parsed ReceiptOCRResult in response: {rsp.output!r}")
+def _image_content(prompt: str, images_base64: list[str]) -> list[dict]:
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    for encoded in images_base64:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+            }
+        )
+    return content
 
 
-async def extract_receipt_items(images_base64: list[str]) -> ReceiptOCRResult:
-    """Extract structured receipt data from one or more JPEG base64 images.
-
-    Uses OpenAI Responses API with structured output (ReceiptOCRResult).
-    Falls back to a dummy result when no API key is configured.
-    """
-    if not settings.openai_api_key:
-        # Developer fallback so local app still works without paid API credentials.
-        return ReceiptOCRResult(
+def _dummy_extraction() -> ReceiptExtraction:
+    report = reconcile_receipt(
+        ReceiptOCRResult(
             merchant_name="Unknown",
             currency="ZAR",
             total_amount="0.00",
@@ -86,6 +93,56 @@ async def extract_receipt_items(images_base64: list[str]) -> ReceiptOCRResult:
                 ),
             ],
         )
+    )
+    return ReceiptExtraction(result=report.result, retried=False, sum_gap=report.sum_gap)
+
+
+async def _parse_receipt(client: object, model: str, user_content: list[dict]) -> ReceiptOCRResult:
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT.strip()},
+        {"role": "user", "content": user_content},
+    ]
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": ReceiptOCRResult.__name__,
+            "strict": True,
+            "schema": ReceiptOCRResult.model_json_schema(),
+        },
+    }
+    extra_body = {"provider": {"require_parameters": True}}
+    for attempt in range(2):
+        response = await client.chat.completions.create(  # type: ignore[attr-defined]
+            model=model,
+            messages=messages,
+            temperature=0,
+            response_format=response_format,
+            extra_body=extra_body,
+        )
+        content = response.choices[0].message.content or ""
+        try:
+            return ReceiptOCRResult.model_validate_json(content)
+        except ValidationError as exc:
+            if attempt == 1:
+                raise
+            errors = "\n".join(str(err) for err in exc.errors()[:10])
+            messages = [
+                *messages,
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": SCHEMA_REPAIR.format(errors=errors)},
+            ]
+    raise RuntimeError("No parsed ReceiptOCRResult in response")
+
+
+async def extract_receipt_items(images_base64: list[str]) -> ReceiptExtraction:
+    """Extract structured receipt data from one or more JPEG base64 images.
+
+    Uses OpenRouter chat completions with strict JSON schema output.
+    Falls back to a dummy result when no API key is configured.
+    """
+    settings = get_settings()
+    if not settings.openrouter_api_key:
+        return _dummy_extraction()
 
     if not images_base64:
         raise ValueError("At least one JPEG base64 image is required.")
@@ -94,24 +151,30 @@ async def extract_receipt_items(images_base64: list[str]) -> ReceiptOCRResult:
     if len(images_base64) > 1:
         prompt = prompt + "\n\n" + USER_PROMPT_MULTI_PAGE.strip()
 
-    content: list[dict] = [{"type": "input_text", "text": prompt}]
-    for b64 in images_base64:
-        content.append(
-            {
-                "type": "input_image",
-                "image_url": f"data:image/jpeg;base64,{b64}",
-                "detail": "high",
-            }
-        )
-
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=120.0)
-    rsp = await client.responses.parse(
-        model=settings.openai_model,
-        instructions=SYSTEM_PROMPT,
-        input=[{"role": "user", "content": content}],
-        text_format=ReceiptOCRResult,
-        temperature=0,
+    client = AsyncOpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=settings.openrouter_api_key,
+        timeout=120.0,
     )
-    return _parsed_receipt_from_response(rsp)
+    first_raw = await _parse_receipt(
+        client,
+        settings.openrouter_model,
+        _image_content(prompt, images_base64),
+    )
+    first = reconcile_receipt(first_raw)
+    chosen = first
+    retried = False
+    if first.needs_retry:
+        retried = True
+        try:
+            second_raw = await _parse_receipt(
+                client,
+                settings.openrouter_model,
+                build_retry_user_content(images_base64, first.result, first),
+            )
+            chosen = prefer_attempt(first, reconcile_receipt(second_raw))
+        except Exception:
+            chosen = first
+    return ReceiptExtraction(result=chosen.result, retried=retried, sum_gap=chosen.sum_gap)

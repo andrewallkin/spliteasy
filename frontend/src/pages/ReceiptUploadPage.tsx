@@ -17,6 +17,7 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { Select } from '@/components/ui/Select'
 import { StickyFooter } from '@/components/ui/StickyFooter'
 import { useToast } from '@/context/ToastContext'
+import { TotalGapBanner } from '@/components/receipt/TotalGapBanner'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
 import { groupTheme } from '@/lib/theme'
 import type { GroupMember, OCRLineItem, Receipt } from '@/types/models'
@@ -690,6 +691,8 @@ export function ReceiptUploadPage() {
                 </Field>
               )}
             </Card>
+
+            <TotalGapBanner items={items} totalAmount={totalAmount} currency={currency} />
 
             <div className="flex items-center justify-between gap-2 px-0.5">
               <h3 className="text-sm font-extrabold text-ink">Items · {items.length}</h3>
