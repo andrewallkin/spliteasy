@@ -11,11 +11,17 @@ Your goal is to provide a clean JSON where EVERY numeric field is populated (no 
 
 ### Extraction Logic:
 1. QUANTITY & PRICE: If an item does not have an '@' multiplier line, set 'quantity' to 1 and 'price_per_unit' to match the 'line_subtotal'.
-2. DISCOUNTS: Lines like 'XTRASAVE' or negative values are discounts. Attach them to the preceding item. If no discount exists, set 'line_discount' to "0.00".
-3. LINE TOTALS: 'final_line_total' MUST equal ('line_subtotal' minus 'line_discount').
-4. MATH CONSISTENCY: Ensure 'line_subtotal' equals ('price_per_unit' * 'quantity').
-5. MULTIPLE IMAGES: The same physical receipt line may appear in more than one image (e.g. overlap between photos, folds, or stitching). **Do not duplicate** items: merge or choose a single canonical entry per line; each purchased line must appear at most once in `items`.
-6. FREE / COMPLIMENTARY LINES: OMIT any line that is explicitly free, complimentary, promotional, a gift, or otherwise printed with a R0.00 / 0.00 price. Do not include them in `items`. Examples: "FREE COMBO 8", "COMPLIMENTARY WATER", "GIFT - CHOCOLATE", or any line whose printed amount is zero. Buy-one-get-one-free promotions: keep only the paid line(s); drop the free line entirely.
+2. DISCOUNTS appear in different visual layouts — recognise all of them:
+   - A separate line BELOW the item (e.g. a promo/clubcard line such as 'XTRASAVE ...', or a negative value like '-R27.00'). Attach it to the item above it.
+   - A negative value printed in the total/price column directly under an item, with the final discounted price printed underneath it. In that layout the printed price above the negative value is 'line_subtotal', the negative value is 'line_discount', and the final printed price underneath is 'final_line_total'.
+   - Small-print savings amounts (clubcard/promo savings) anywhere near the line, including a savings figure printed further down the receipt that belongs to an item above.
+   If no discount exists for a line, set 'line_discount' to "0.00".
+   IMPORTANT: if the final printed price for a line differs from unit price × quantity, a discount MUST exist — find it (it may be printed in small text, as a negative amount, or on a following line). Never report 'final_line_total' equal to 'line_subtotal' when the receipt shows a different paid amount.
+3. MULTI-BUY OFFERS: Lines like '3 FOR R66.00' or '10 @ R16.76' mean the effective unit price differs from the sticker price. Record 'quantity' and 'price_per_unit' such that ('price_per_unit' × 'quantity') equals the multi-buy total ('line_subtotal').
+4. LINE TOTALS: 'final_line_total' MUST equal ('line_subtotal' minus 'line_discount').
+5. MATH CONSISTENCY: Ensure 'line_subtotal' equals ('price_per_unit' * 'quantity').
+6. MULTIPLE IMAGES: The same physical receipt line may appear in more than one image (e.g. overlap between photos, folds, or stitching). **Do not duplicate** items: merge or choose a single canonical entry per line; each purchased line must appear at most once in `items`.
+7. FREE / COMPLIMENTARY LINES: OMIT any line that is explicitly free, complimentary, promotional, a gift, or otherwise printed with a R0.00 / 0.00 price. Do not include them in `items`. Examples: "FREE COMBO 8", "COMPLIMENTARY WATER", "GIFT - CHOCOLATE", or any line whose printed amount is zero. Buy-one-get-one-free promotions: keep only the paid line(s); drop the free line entirely.
 
 ### Example Transformation:
 Input:
@@ -44,6 +50,21 @@ Output Item:
   "line_subtotal": "240.00",
   "line_discount": "0.00",
   "final_line_total": "240.00"
+}
+
+Input (discount as negative value in the price column, final price underneath):
+MONSTER ENERGY 500ML     R74.99
+                        -R15.99
+                         R59.00
+
+Output Item:
+{
+  "description": "MONSTER ENERGY 500ML",
+  "quantity": 1,
+  "price_per_unit": "74.99",
+  "line_subtotal": "74.99",
+  "line_discount": "15.99",
+  "final_line_total": "59.00"
 }
 """
 

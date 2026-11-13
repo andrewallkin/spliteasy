@@ -28,7 +28,7 @@ Full-stack bill-splitting application (MVP scope: **two members per group**). Th
 ## What it does
 
 - **Groups**: A user creates a group and becomes the **owner**. A second user joins via an **invitation** (email-bound flow with `invitation_id`, or a **6-character join code**). The API rejects joins and invites when the group already has two members (see `backend/app/api/routes/groups.py`).
-- **Receipts**: Upload receipt images; the backend normalizes images (including HEIC), runs **OpenAI** structured OCR (`backend/app/services/ocr.py`), lets users review line items, assign shares, then marks the receipt **`assigned`** so it affects balances.
+- **Receipts**: Upload receipt images; the backend normalizes images (including HEIC), runs **OpenRouter** structured OCR (`backend/app/services/ocr.py`), lets users review line items, assign shares, then marks the receipt **`assigned`** so it affects balances.
 - **Manual entries**: Log expenses without a receipt, with split types `equal`, `full`, or `percentage` (`backend/app/api/routes/entries.py`).
 - **Settlements**: Record payments between members; included in balance math (`backend/app/services/balances.py`).
 - **Balances**: Per-member net amounts derived from assigned receipts, manual entries, and settlements.
@@ -39,7 +39,7 @@ Full-stack bill-splitting application (MVP scope: **two members per group**). Th
 | --- | --- |
 | Backend | FastAPI, SQLAlchemy (async), Alembic, PostgreSQL (asyncpg), Pydantic Settings |
 | Frontend | React 19, TypeScript, Vite, Tailwind (via project styling), React Router 7, Axios |
-| OCR | OpenAI API (`OPENAI_MODEL`, default `gpt-4o`) |
+| OCR | OpenRouter (`OPENROUTER_MODEL`, default `google/gemini-2.5-flash`) |
 | Tooling | `uv` (Python), Docker Compose |
 
 ---
@@ -61,12 +61,12 @@ flowchart LR
   end
   subgraph data [Data and external]
     PG[(PostgreSQL)]
-    OAI[OpenAI API]
+    OR[OpenRouter]
   end
   SPA -->|"/api/*"| Proxy
   Proxy --> API
   API --> PG
-  API -->|OCR| OAI
+  API -->|OCR| OR
 ```
 
 **Development** (`docker-compose.dev.yml`): Compose runs **PostgreSQL 15**, the **backend** (Uvicorn with reload), and the **frontend** (Vite dev server on container port **5173**, published to host **`FRONTEND_PORT`** default **3000**). The frontend service sets `API_PROXY_ORIGIN=http://backend:8000` so Vite proxies `/api` to the backend (`frontend/vite.config.ts`).
@@ -110,7 +110,7 @@ Host directory **`./data`** is mounted at **`/app/data`** in both compose files 
 
 Configuration is loaded by **pydantic-settings** from **`.env`** in the backend working directory (`backend/app/config.py` uses `env_file=".env"`). Keys in `.env` use **SCREAMING_SNAKE_CASE**; the settings class maps them to **snake_case** fields (e.g. `POSTGRES_DB` → `postgres_db`).
 
-**The single source of truth for environment variables is [`.env.example`](.env.example)** — it lists every supported variable, grouped into sections (`Application`, `Database`, `Auth`, `CORS`, `OpenAI`, `Google Cloud Storage`, `Compose / operator`), with comments explaining each.
+**The single source of truth for environment variables is [`.env.example`](.env.example)** — it lists every supported variable, grouped into sections (`Application`, `Database`, `Auth`, `CORS`, `OpenRouter`, `Google Cloud Storage`, `Compose / operator`), with comments explaining each.
 
 Quick reference for the most operational ones:
 
@@ -311,11 +311,11 @@ Router prefix: **`/groups/{group_id}`**.
 
 1. Client uploads one or more image files to **`POST /api/groups/{group_id}/receipts`**.
 2. Backend converts images to **JPEG** where needed (JPEG passthrough, HEIC via `pillow-heif`, other raster via Pillow) (`backend/app/services/ocr.py`).
-3. **OpenAI** returns structured line items; persistence and status transitions are handled in `receipts` routes and models.
+3. **OpenRouter** returns structured line items; persistence and status transitions are handled in `receipts` routes and models.
 4. User reviews items (`GET`/`PUT` `/api/receipts/{id}/items`), then **`POST /api/receipts/{id}/assign`** applies **ShareType** rules (`full`, `equal`, `percentage` in `backend/app/models/enums.py`).
 5. Once **`assigned`**, line items affect **`compute_group_balances`**.
 
-Without a valid **`OPENAI_API_KEY`**, OCR-dependent steps will fail at runtime.
+Without a valid **`OPENROUTER_API_KEY`**, OCR-dependent steps will fail at runtime.
 
 ---
 
@@ -418,7 +418,7 @@ Compose publishes those as `andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}` and 
 | Refresh never succeeds | Cookie path is `/api/auth`; ensure requests go to the same site and path prefix the proxy forwards correctly. |
 | Tables missing / 500 on first run | Run **`alembic upgrade head`** (or `make migrate` in dev). |
 | Production backend cannot reach Postgres | **`postgres-net`** must exist and both DB and backend containers must attach to it; **`POSTGRES_HOST`** must be the DB service name on that network. |
-| OCR or upload errors | Valid **`OPENAI_API_KEY`**, model id, network egress from the backend container, and correct GCS settings (**`GCP_SERVICE_ACCOUNT_CREDENTIALS`**, **`GCS_IMAGES_BUCKET_NAME`**). |
+| OCR or upload errors | Valid **`OPENROUTER_API_KEY`**, **`OPENROUTER_MODEL`** (default `google/gemini-2.5-flash`), network egress from the backend container, and correct GCS settings (**`GCP_SERVICE_ACCOUNT_CREDENTIALS`**, **`GCS_IMAGES_BUCKET_NAME`**). |
 | Join or invite fails with “Group already full” | MVP limit of **two members** per group. |
 
 ---

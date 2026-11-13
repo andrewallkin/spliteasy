@@ -10,6 +10,7 @@ import {
   updateReceiptItems,
 } from '@/api/groups'
 import { api } from '@/api/client'
+import { TotalGapBanner } from '@/components/receipt/TotalGapBanner'
 import { BottomSheet } from '@/components/ui/BottomSheet'
 import { Button } from '@/components/ui/Button'
 import { Field, microLabelClassName } from '@/components/ui/Field'
@@ -272,6 +273,7 @@ export function ReceiptDetailModal({
           </div>
 
           <div className="space-y-3">
+            <TotalGapBanner items={items} totalAmount={totalAmount} currency={currency || 'ZAR'} />
             <h4 className={microLabelClassName}>Line Items</h4>
             {items.map((item) => {
               const uncertain = item.confidence > 0 && item.confidence < 0.85

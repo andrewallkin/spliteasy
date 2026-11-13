@@ -179,12 +179,17 @@ async def upload_receipt(
     await db.flush()  # persist receipt row so LineItem FK references are valid
 
     try:
-        parsed = await extract_receipt_items(images_base64)
+        extraction = await extract_receipt_items(images_base64)
+        parsed = extraction.result
         receipt.merchant_name = parsed.merchant_name
         receipt.currency = parsed.currency
         if parsed.total_amount is not None:
             receipt.total_amount = Decimal(str(parsed.total_amount))
-        receipt.ocr_raw_response = parsed.model_dump(mode="json")
+        receipt.ocr_raw_response = {
+            "parsed": parsed.model_dump(mode="json"),
+            "retried": extraction.retried,
+            "sum_gap": str(extraction.sum_gap),
+        }
         receipt.status = "pending_review"
         for sort_index, item, final_total in _positive_ocr_items(parsed.items):
             db.add(

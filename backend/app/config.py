@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int
     cookie_secure: bool
 
-    openai_api_key: str
-    openai_model: str
+    openrouter_api_key: str
+    openrouter_model: str = "google/gemini-2.5-flash"
 
     gcp_service_account_credentials: str = ""
     gcs_images_bucket_name: str = ""
