@@ -188,16 +188,88 @@ async def seed() -> None:
             ]
         )
 
+        market = Receipt(
+            id=uuid.UUID("88888888-8888-4888-8888-888888888808"),
+            group_id=GROUP_ID,
+            uploaded_by=USER_ALEX_ID,
+            image_gcs_path=DEMO_RECEIPT_IMAGE,
+            merchant_name="Saturday Market Stall",
+            receipt_date="2026-02-08",
+            currency="ZAR",
+            total_amount=Decimal("64.00"),
+            status=ReceiptStatus.assigned,
+            paid_by_user_id=USER_ALEX_ID,
+            nickname="Market fruit",
+        )
+        session.add(market)
+        await session.flush()
+        market_item = LineItem(
+            receipt_id=market.id,
+            group_id=GROUP_ID,
+            description="Stone fruit punnet",
+            amount=Decimal("64.00"),
+            final_line_total=Decimal("64.00"),
+            line_subtotal=Decimal("64.00"),
+            sort_order=0,
+            confidence=1.0,
+        )
+        session.add(market_item)
+        await session.flush()
         session.add(
-            Settlement(
-                id=SETTLEMENT_ID,
-                group_id=GROUP_ID,
-                paid_by=USER_BLAIR_ID,
-                paid_to=USER_ALEX_ID,
-                amount=Decimal("150.00"),
-                notes="Paid via imaginary wallet",
-                settled_at=yesterday,
+            ItemAssignment(
+                line_item_id=market_item.id,
+                user_id=USER_BLAIR_ID,
+                share_type=ShareType.full,
+                share_amount=Decimal("64.00"),
             )
+        )
+
+        power = ManualEntry(
+            id=uuid.UUID("99999999-9999-4999-8999-999999999909"),
+            group_id=GROUP_ID,
+            created_by=USER_BLAIR_ID,
+            description="Fictional municipal power",
+            total_amount=Decimal("420.00"),
+            split_type=SplitType.equal,
+        )
+        session.add(power)
+        await session.flush()
+        session.add_all(
+            [
+                ManualEntrySplit(
+                    manual_entry_id=power.id,
+                    user_id=USER_ALEX_ID,
+                    amount=Decimal("210.00"),
+                ),
+                ManualEntrySplit(
+                    manual_entry_id=power.id,
+                    user_id=USER_BLAIR_ID,
+                    amount=Decimal("210.00"),
+                ),
+            ]
+        )
+
+        session.add_all(
+            [
+                Settlement(
+                    id=SETTLEMENT_ID,
+                    group_id=GROUP_ID,
+                    paid_by=USER_BLAIR_ID,
+                    paid_to=USER_ALEX_ID,
+                    amount=Decimal("150.00"),
+                    notes="Paid via imaginary wallet",
+                    settled_at=yesterday,
+                ),
+                Settlement(
+                    id=uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab"),
+                    group_id=GROUP_ID,
+                    paid_by=USER_ALEX_ID,
+                    paid_to=USER_BLAIR_ID,
+                    amount=Decimal("80.00"),
+                    notes="Cash for the market run",
+                    settled_at=now - timedelta(days=3),
+                ),
+            ]
         )
 
         await session.commit()

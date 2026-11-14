@@ -23,7 +23,7 @@ const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'password123'
 const DEMO_GROUP_ID = process.env.DEMO_GROUP_ID ?? '33333333-3333-4333-8333-333333333303'
 const DRAFT_RECEIPT_ID = process.env.DEMO_DRAFT_RECEIPT_ID ?? '44444444-4444-4444-8444-444444444404'
 
-const VIEWPORT = { width: 1440, height: 900 }
+const VIEWPORT = { width: 420, height: 900 }
 
 async function login(page) {
   await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' })
@@ -42,7 +42,7 @@ async function main() {
   await mkdir(outDir, { recursive: true })
 
   const browser = await chromium.launch()
-  const context = await browser.newContext({ viewport: VIEWPORT })
+  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 })
   const page = await context.newPage()
 
   try {
@@ -50,6 +50,10 @@ async function main() {
 
     await page.goto(`${BASE_URL}/groups/${DEMO_GROUP_ID}`, { waitUntil: 'networkidle' })
     await page.getByText('Fictional Flatmates').first().waitFor({ timeout: 30_000 })
+    await page.waitForFunction(() => {
+      const img = document.querySelector('img[alt="Receipt"]')
+      return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0
+    }, null, { timeout: 15_000 })
     await capture(page, 'hero.png')
 
     await page.goto(

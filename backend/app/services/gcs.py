@@ -5,12 +5,25 @@ import json
 import logging
 from datetime import timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import Optional
 
 from google.cloud import storage
 from google.oauth2 import service_account
 
 from app.config import get_settings
+
+_DEMO_RECEIPT = Path(__file__).resolve().parents[1] / "demo_assets" / "synthetic-receipt.png"
+_DEMO_RECEIPT_PATH = "demo/synthetic-receipt.png"
+
+
+def demo_image_bytes(object_path: str) -> Optional[bytes]:
+    """Local stand-in for screenshot seeds. Never calls Google Cloud."""
+    if object_path != _DEMO_RECEIPT_PATH:
+        return None
+    if not _DEMO_RECEIPT.is_file():
+        return None
+    return _DEMO_RECEIPT.read_bytes()
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +87,9 @@ class GCSService:
 
     def download_image(self, object_path: str) -> Optional[bytes]:
         """Download image bytes from GCS. Returns bytes on success, None on failure."""
+        local = demo_image_bytes(object_path)
+        if local is not None:
+            return local
         if not self.is_available():
             logger.error("GCS service not available")
             return None
@@ -116,6 +132,8 @@ class GCSService:
 
     def generate_signed_url(self, object_path: str, expiration_days: int = 7) -> Optional[str]:
         """Generate a signed URL for an object. Returns URL string on success, None on failure."""
+        if demo_image_bytes(object_path) is not None:
+            return None
         if not self.is_available():
             logger.error("GCS service not available")
             return None
