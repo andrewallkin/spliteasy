@@ -1,5 +1,5 @@
+# Audience: day-to-day local development with reload and Vite.
 services:
-  # Persistent database (default development mode)
   postgres:
     image: postgres:15
     env_file:
@@ -31,7 +31,7 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
