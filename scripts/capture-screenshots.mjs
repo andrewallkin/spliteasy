@@ -62,6 +62,7 @@ async function main() {
 
     await page.goto(`${BASE_URL}/groups/${DEMO_GROUP_ID}/history`, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'Settlements' }).click()
+    await page.getByText('Fictional fibre bill').waitFor({ state: 'hidden', timeout: 30_000 })
     await page.getByText(/paid via imaginary wallet/i).waitFor({ timeout: 30_000 })
     await capture(page, 'feature-02.png')
   } finally {

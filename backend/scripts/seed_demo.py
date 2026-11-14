@@ -102,7 +102,7 @@ async def seed() -> None:
             merchant_name="Pixel Pantry Groceries",
             receipt_date="2026-02-14",
             currency="ZAR",
-            total_amount=Decimal("187.50"),
+            total_amount=Decimal("137.50"),
             status=ReceiptStatus.pending_review,
             paid_by_user_id=USER_ALEX_ID,
         )
