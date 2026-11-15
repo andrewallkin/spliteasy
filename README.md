@@ -83,15 +83,7 @@ flowchart TB
    docker compose -f docker-compose.dev.yml exec backend uv run alembic upgrade head
    ```
 
-4. Open **http://localhost:3000** (adjust for `FRONTEND_PORT`). API docs: **http://localhost:8000/docs**.
-
-**Optional demo data** (fictional names and amounts; local database only):
-
-```bash
-docker compose -f docker-compose.standalone.yml exec backend uv run python scripts/seed_demo.py --reset
-```
-
-Sign in with **`demo@example.com`** / **`password123`** after seeding.
+4. Open **http://localhost:3000** (adjust for `FRONTEND_PORT`). API docs: **http://localhost:8000/docs**. Register an account to use the app.
 
 ## Configuration
 
@@ -121,7 +113,5 @@ Core surface area: `/api/auth`, `/api/users`, `/api/groups` (members, balances, 
 | Backend tests | `make test` |
 | Migrate (dev compose) | `make migrate` |
 | Standalone migrate | `docker compose -f docker-compose.standalone.yml exec backend bash /app/run_migrations.sh` |
-| Seed demo data | `docker compose -f docker-compose.standalone.yml exec backend uv run python scripts/seed_demo.py --reset` |
-| Capture README screenshots | `npm install && npm run capture-screenshots` (standalone stack up, migrated, seeded; uses Playwright at 1440×900) |
 
 GitHub Actions (`.github/workflows/ci.yml`) runs backend pytest and frontend lint on pull requests. `.github/workflows/deploy.yml` builds and pushes Docker images on `main`; it does not deploy or migrate.

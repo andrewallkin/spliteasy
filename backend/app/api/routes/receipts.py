@@ -464,16 +464,9 @@ async def receipt_image(
     image_bytes = await asyncio.to_thread(gcs.download_image, paths[index])
     if image_bytes is None:
         raise HTTPException(status_code=404, detail="Receipt image not found")
-    lower = paths[index].lower()
-    if lower.endswith(".png"):
-        media_type = "image/png"
-    elif lower.endswith(".svg"):
-        media_type = "image/svg+xml"
-    else:
-        media_type = "image/jpeg"
     return Response(
         content=image_bytes,
-        media_type=media_type,
+        media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=86400"},
     )
 
