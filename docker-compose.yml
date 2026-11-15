@@ -1,3 +1,4 @@
+# Audience: VPS control panel image-mode deploy (external shared Postgres).
 services:
   backend:
     image: andrewallkin/spliteasy:${DOCKER_IMAGE_BACKEND}
