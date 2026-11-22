@@ -16,9 +16,11 @@ import { PageContent, PageHeader } from '@/components/ui/PageHeader'
 import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { Select } from '@/components/ui/Select'
 import { StickyFooter } from '@/components/ui/StickyFooter'
+import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 import { TotalGapBanner } from '@/components/receipt/TotalGapBanner'
 import { useConfirmDialog } from '@/hooks/useConfirmDialog'
+import { defaultPayerId, twoPersonAssignOptions, twoPersonPaidByOptions } from '@/lib/memberLabels'
 import { groupTheme } from '@/lib/theme'
 import type { GroupMember, OCRLineItem, Receipt } from '@/types/models'
 import { DEFAULT_CURRENCY, formatCurrency } from '@/utils/currency'
@@ -167,6 +169,7 @@ function ReceiptLineItemAssignControls({
 export function ReceiptUploadPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { addToast } = useToast()
   const [searchParams] = useSearchParams()
   const resumeReceiptId = searchParams.get('receiptId')
@@ -198,10 +201,10 @@ export function ReceiptUploadPage() {
     getGroupMembers(id)
       .then((m) => {
         setMembers(m)
-        if (m.length > 0) setPaidBy(m[0].user_id)
+        setPaidBy((current) => (current ? current : defaultPayerId(m, user?.id)))
       })
       .catch(() => {/* best-effort */})
-  }, [id])
+  }, [id, user?.id])
 
   // Resume an existing pending_review draft when navigated here with ?receiptId=
   useEffect(() => {
@@ -252,8 +255,8 @@ export function ReceiptUploadPage() {
     })()
   }, [blocker.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const me = members[0]
-  const partner = members[1]
+  const me = members.find((member) => member.user_id === user?.id) ?? members[0]
+  const partner = members.find((member) => member.user_id !== me?.user_id)
 
   // Live split summary for 2-user mode
   const splitSummary2 = useMemo(() => {
@@ -536,13 +539,8 @@ export function ReceiptUploadPage() {
     })
   }
 
-  const twoUserAssignOptions = me && partner
-    ? [
-        { value: me.user_id, label: 'Me' },
-        { value: 'split', label: 'Split' },
-        { value: partner.user_id, label: partner.display_name },
-      ]
-    : []
+  const twoUserAssignOptions = twoPersonAssignOptions(members, user?.id)
+  const twoUserPaidByOptions = twoPersonPaidByOptions(members, user?.id)
 
   return (
     <>
@@ -670,10 +668,7 @@ export function ReceiptUploadPage() {
                   <SegmentedControl
                     value={paidBy}
                     onChange={setPaidBy}
-                    options={[
-                      { value: me.user_id, label: 'Me' },
-                      { value: partner.user_id, label: partner.display_name },
-                    ]}
+                    options={twoUserPaidByOptions}
                     aria-label="Paid by"
                   />
                 </Field>
