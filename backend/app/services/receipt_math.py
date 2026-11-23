@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from pydantic import BaseModel
+
 from app.schemas.ocr import OCRLineItemExtracted, ReceiptOCRResult
 
 CENT = Decimal("0.01")
@@ -32,6 +34,7 @@ class ReconciledReceipt:
     printed_total: Decimal
     sum_gap: Decimal
     needs_retry: bool
+    unallocated: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,7 @@ class ReceiptExtraction:
     result: ReceiptOCRResult
     retried: bool
     sum_gap: Decimal
+    unallocated: tuple[str, ...] = ()
 
 
 def _reconcile_item(item: OCRLineItemExtracted) -> tuple[OCRLineItemExtracted, str | None]:
@@ -130,31 +134,46 @@ def reconcile_receipt(result: ReceiptOCRResult) -> ReconciledReceipt:
 
 
 def prefer_attempt(first: ReconciledReceipt, second: ReconciledReceipt) -> ReconciledReceipt:
-    if abs(second.sum_gap) <= abs(first.sum_gap):
+    def rank(report: ReconciledReceipt) -> tuple[int, Decimal]:
+        return (len(report.unallocated), abs(report.sum_gap))
+
+    if rank(second) <= rank(first):
         return second
     return first
 
 
 def build_retry_user_content(
     images_base64: list[str],
-    prior: ReceiptOCRResult,
+    prior: BaseModel,
     report: ReconciledReceipt,
 ) -> list[dict]:
     if report.rewrites:
         rewrite_lines = "\n".join(f"- {row.description}: {row.detail}" for row in report.rewrites)
     else:
         rewrite_lines = "- No per-line fields were rewritten."
+    if report.unallocated:
+        unallocated_lines = "\n".join(f"- {name}" for name in report.unallocated)
+    else:
+        unallocated_lines = "- Every printed promo was explained."
     text = (
-        "The previous extraction does not add up.\n\n"
+        "The previous read does not add up, or a promo could not be\n"
+        "explained by the lines above it.\n\n"
         "Previous JSON:\n"
         f"{prior.model_dump_json()}\n\n"
         "Check report:\n"
         f"{rewrite_lines}\n"
-        f"Items total {_text(report.items_total)}, printed total {_text(report.printed_total)}, "
+        f"{unallocated_lines}\n"
+        f"Items total {_text(report.items_total)}, "
+        f"printed total {_text(report.printed_total)}, "
         f"difference {_text(report.sum_gap)}.\n\n"
-        "Return a full ReceiptOCRResult. Keep total_amount as the printed GROSS "
-        f"({_text(report.printed_total)}). Fix the lines — a missing line, a duplicate line, "
-        "or a discount on the wrong item — so the sum of final_line_total equals that total."
+        "Return a full ReceiptOCRRead of rows in reading order. "
+        "Keep total_amount as the printed GROSS "
+        f"({_text(report.printed_total)}). "
+        "A product amount is the shelf total before any promo. "
+        "A promo is its own row and its amount is the printed savings, "
+        "not the deal price. Do not move a promo onto the following item "
+        "and do not change a printed quantity. "
+        "Do not apply promotions yourself."
     )
     content: list[dict] = [{"type": "text", "text": text}]
     for encoded in images_base64:
