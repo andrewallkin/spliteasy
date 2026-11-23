@@ -3,83 +3,186 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SYSTEM_PROMPT = """You are a specialized vision-to-structured-data assistant for South African retail receipts.
-Your goal is to provide a clean JSON where EVERY numeric field is populated (no nulls).
+SYSTEM_PROMPT = """
+You read South African retail receipts into rows.
+Do not apply promotions. A later step attaches each promo
+to the product lines above it, using the printed savings.
 
-### Extraction Logic:
-1. QUANTITY & PRICE: If an item does not have an '@' multiplier line, set 'quantity' to 1 and 'price_per_unit' to match the 'line_subtotal'.
-2. DISCOUNTS appear in different visual layouts — recognise all of them:
-   - A separate line BELOW the item (e.g. a promo/clubcard line such as 'XTRASAVE ...', or a negative value like '-R27.00'). Attach it to the item above it.
-   - A negative value printed in the total/price column directly under an item, with the final discounted price printed underneath it. In that layout the printed price above the negative value is 'line_subtotal', the negative value is 'line_discount', and the final printed price underneath is 'final_line_total'.
-   - Small-print savings amounts (clubcard/promo savings) anywhere near the line, including a savings figure printed further down the receipt that belongs to an item above.
-   If no discount exists for a line, set 'line_discount' to "0.00".
-   IMPORTANT: if the final printed price for a line differs from unit price × quantity, a discount MUST exist — find it (it may be printed in small text, as a negative amount, or on a following line). Never report 'final_line_total' equal to 'line_subtotal' when the receipt shows a different paid amount.
-3. MULTI-BUY OFFERS: Lines like '3 FOR R66.00' or '10 @ R16.76' mean the effective unit price differs from the sticker price. Record 'quantity' and 'price_per_unit' such that ('price_per_unit' × 'quantity') equals the multi-buy total ('line_subtotal').
-4. LINE TOTALS: 'final_line_total' MUST equal ('line_subtotal' minus 'line_discount').
-5. MATH CONSISTENCY: Ensure 'line_subtotal' equals ('price_per_unit' * 'quantity').
-6. MULTIPLE IMAGES: The same physical receipt line may appear in more than one image (e.g. overlap between photos, folds, or stitching). **Do not duplicate** items: merge or choose a single canonical entry per line; each purchased line must appear at most once in `items`.
-7. FREE / COMPLIMENTARY LINES: OMIT any line that is explicitly free, complimentary, promotional, a gift, or otherwise printed with a R0.00 / 0.00 price. Do not include them in `items`. Examples: "FREE COMBO 8", "COMPLIMENTARY WATER", "GIFT - CHOCOLATE", or any line whose printed amount is zero. Buy-one-get-one-free promotions: keep only the paid line(s); drop the free line entirely.
+Emit one row per product, promo, or fee, top to bottom.
+Every numeric field is a string or an integer. No nulls.
 
-### Example Transformation:
-Input:
-T/BRUSH WHT MED       R89.98
-            2 @       R44.99
-XTRASAVE DENTAL      -R27.00
+kind = "product":
+- description is the item name.
+- quantity is the printed count ("Qty N" or "N @").
+  Use 1 when no count is printed.
+- price_per_unit is the printed unit price.
+- amount is the shelf line total BEFORE any promo
+  (unit price times quantity). Use the total column
+  next to the product, not a price after a deal.
+- promo_quantity is 0. promo_price and promo_percent
+  are "0.00".
 
-Output Item:
-{
-  "description": "T/BRUSH WHT MED",
-  "quantity": 2,
-  "price_per_unit": "44.99",
-  "line_subtotal": "89.98",
-  "line_discount": "27.00",
-  "final_line_total": "62.98"
-}
+kind = "promo":
+- A promo is its own row. Never fold it into the product
+  above or below. Never change a quantity to make a deal fit.
+- description is the promo text, such as "Buy 2 For R99",
+  "Buy 3 & Save 25%", or "XTRASAVE DENTAL".
+- amount is the printed savings as a positive number.
+  A printed "-R30.98" has amount "30.98".
+- "Buy N for RXX": promo_quantity is N, promo_price is
+  "XX.00", promo_percent is "0.00".
+- "Buy N and save P%": promo_quantity is N, promo_percent
+  is "25" for 25%, promo_price is "0.00".
+- A savings line with no deal price and no percent
+  (club card, XTRASAVE, a negative amount under one item):
+  promo_quantity is 0, promo_price and promo_percent are "0.00".
+- quantity is 1 and price_per_unit is "0.00".
 
-Input:
-FEATHERLITE CON 12 V  R240.00
+kind = "fee":
+- Delivery, bag, or tip charges, and discounts that offset them.
+- amount is signed: a charge is "37.00", a discount is "-37.00".
+- promo_quantity is 0. promo_price and promo_percent are "0.00".
 
-Output Item:
-{
-  "description": "FEATHERLITE CON 12 V",
-  "quantity": 1,
-  "price_per_unit": "240.00",
-  "line_subtotal": "240.00",
-  "line_discount": "0.00",
-  "final_line_total": "240.00"
-}
+Skip these:
+- Do not emit subtotals, invoice summaries, tax lines, or the
+  grand total as rows. Put the printed gross only in total_amount.
+- Omit free, complimentary, or gift lines priced at 0.00.
+  For buy-one-get-one-free, keep the paid product only.
+- The same line may show in more than one photo. Emit it once.
 
-Input (discount as negative value in the price column, final price underneath):
-MONSTER ENERGY 500ML     R74.99
-                        -R15.99
-                         R59.00
+Example: a grouped deal stays a promo row. Brie is unchanged.
 
-Output Item:
-{
-  "description": "MONSTER ENERGY 500ML",
-  "quantity": 1,
-  "price_per_unit": "74.99",
-  "line_subtotal": "74.99",
-  "line_discount": "15.99",
-  "final_line_total": "59.00"
-}
+Rhodes Jam 340g            R64.99
+Rhodes Marmalade 340g      R64.99
+** Buy 2 For R99 **       -R30.98
+Castello Brie 125g         R59.99
+
+{"kind":"product","description":"Rhodes Jam 340g","quantity":1,
+ "price_per_unit":"64.99","amount":"64.99","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"product","description":"Rhodes Marmalade 340g","quantity":1,
+ "price_per_unit":"64.99","amount":"64.99","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"promo","description":"Buy 2 For R99","quantity":1,
+ "price_per_unit":"0.00","amount":"30.98","promo_quantity":2,
+ "promo_price":"99.00","promo_percent":"0.00"}
+{"kind":"product","description":"Castello Brie 125g","quantity":1,
+ "price_per_unit":"59.99","amount":"59.99","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+
+Example: quantity already printed, then a percent deal.
+
+OREO Original Biscuit 14 Pack  R79.96
+Qty 4
+** Buy 2 For R30 **           -R19.96
+Cadbury Whole Nut 150g        R99.98
+Qty 2
+Cadbury Bubbly 150g           R49.99
+** Buy 3 & Save 25% **        -R37.50
+
+{"kind":"product","description":"OREO Original Biscuit 14 Pack",
+ "quantity":4,"price_per_unit":"19.99","amount":"79.96",
+ "promo_quantity":0,"promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"promo","description":"Buy 2 For R30","quantity":1,
+ "price_per_unit":"0.00","amount":"19.96","promo_quantity":2,
+ "promo_price":"30.00","promo_percent":"0.00"}
+{"kind":"product","description":"Cadbury Whole Nut 150g",
+ "quantity":2,"price_per_unit":"49.99","amount":"99.98",
+ "promo_quantity":0,"promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"product","description":"Cadbury Bubbly 150g","quantity":1,
+ "price_per_unit":"49.99","amount":"49.99","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"promo","description":"Buy 3 & Save 25%","quantity":1,
+ "price_per_unit":"0.00","amount":"37.50","promo_quantity":3,
+ "promo_price":"0.00","promo_percent":"25"}
+
+Example: a club-card saving, and delivery that is fully discounted.
+
+T/BRUSH WHT MED     R89.98
+         2 @        R44.99
+XTRASAVE DENTAL    -R27.00
+Delivery fee        R37.00
+Delivery Discount  -R37.00
+
+{"kind":"product","description":"T/BRUSH WHT MED","quantity":2,
+ "price_per_unit":"44.99","amount":"89.98","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"promo","description":"XTRASAVE DENTAL","quantity":1,
+ "price_per_unit":"0.00","amount":"27.00","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"fee","description":"Delivery fee","quantity":1,
+ "price_per_unit":"0.00","amount":"37.00","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
+{"kind":"fee","description":"Delivery Discount","quantity":1,
+ "price_per_unit":"0.00","amount":"-37.00","promo_quantity":0,
+ "promo_price":"0.00","promo_percent":"0.00"}
 """
 
 USER_PROMPT = """
-Extract all line items and the grand total (GROSS) from this receipt.
-- Ensure 'quantity' is an integer.
-- Ensure 'line_discount' is "0.00" if no discount is present.
-- Do not return null for any numeric fields; infer the unit price if it is not explicitly stated.
-- Skip any free / complimentary / promotional line (price 0.00). Do not emit it as an item.
-- Ensure the 'merchant_name' is extracted (e.g., 'Checkers Rondebosch' or 'Clicks').
+Extract every product, promo, and fee row, and the printed gross total.
+- Rows stay in reading order. A promo is a separate row.
+  Do not apply it to any product.
+- Product amount is the shelf total before the promo.
+  Product quantity is the printed quantity.
+- Promo amount is the printed savings as a positive number.
+- Fee discounts are negative amounts.
+- Do not return nulls. Use 0 and "0.00" for promo fields
+  that do not apply.
+- merchant_name is the store name when it is printed,
+  for example "Checkers" or "Clicks".
+  Use "Unknown" when the photos do not show it.
 """
 
 USER_PROMPT_MULTI_PAGE = """
-Multiple images are attached: treat them as sequential parts of ONE receipt (e.g. multiple pages or separate photos of the same slip). Combine all line items in reading order; use the correct grand total (usually on the page that shows the payment/total summary).
+Multiple images are attached. Treat them as sequential parts of ONE
+receipt (pages, or separate photos of the same slip). Combine rows in
+reading order. Use the grand total from the page with the payment summary.
 """
+
+
+class OCRReadRow(BaseModel):
+    """One printed product, promo, or fee, before promotions are applied."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["product", "promo", "fee"] = Field(
+        ...,
+        description="product, promo, or fee.",
+    )
+    description: str = Field(..., description="Text printed for this row.")
+    quantity: int = Field(..., description="Printed quantity for a product. 1 for a promo or fee.")
+    price_per_unit: str = Field(
+        ...,
+        description="Unit price for a product. 0.00 for a promo or fee.",
+    )
+    amount: str = Field(
+        ...,
+        description="Product shelf total, positive promo savings, or signed fee amount.",
+    )
+    promo_quantity: int = Field(..., description="N in Buy N. 0 when this is not a multi-buy.")
+    promo_price: str = Field(
+        ...,
+        description="Deal price in Buy N for RXX. 0.00 when there is no deal price.",
+    )
+    promo_percent: str = Field(
+        ...,
+        description="Percent in Buy N and save P%. 0.00 when there is no percent.",
+    )
+
+
+class ReceiptOCRRead(BaseModel):
+    """What the model reads. Promotions are not applied yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    merchant_name: str = Field(..., description="Store name, or Unknown when it is not printed.")
+    currency: str = Field(..., description="Currency code, usually ZAR.")
+    total_amount: str = Field(..., description="Printed gross total.")
+    rows: list[OCRReadRow]
 
 
 class OCRLineItemExtracted(BaseModel):
@@ -90,13 +193,28 @@ class OCRLineItemExtracted(BaseModel):
     description: str = Field(..., description="Item label as printed on the receipt.")
 
     # Force quantity to int and default to 1
-    quantity: int = Field(default=1, description="The count or weight. Default to 1 if not specified.")
+    quantity: int = Field(
+        default=1,
+        description="The count or weight. Default to 1 if not specified.",
+    )
 
     # Ensure all money fields are strings and always populated
-    price_per_unit: str = Field(..., description="The price of a single unit. If not listed, use line_subtotal.")
-    line_subtotal: str = Field(..., description="The amount printed next to the item name (before discounts).")
-    line_discount: str = Field(default="0.00", description="The discount amount. Default to '0.00' if no discount exists.")
-    final_line_total: str = Field(..., description="The final cost for this line: (price_per_unit * quantity) - line_discount.")
+    price_per_unit: str = Field(
+        ...,
+        description="The price of a single unit. If not listed, use line_subtotal.",
+    )
+    line_subtotal: str = Field(
+        ...,
+        description="The amount printed next to the item name (before discounts).",
+    )
+    line_discount: str = Field(
+        default="0.00",
+        description="The discount amount. Default to '0.00' if no discount exists.",
+    )
+    final_line_total: str = Field(
+        ...,
+        description="The final cost for this line: (price_per_unit * quantity) - line_discount.",
+    )
 
     confidence: float = Field(0.0, description="Confidence score in the range [0, 1]")
 

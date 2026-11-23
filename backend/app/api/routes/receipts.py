@@ -189,6 +189,7 @@ async def upload_receipt(
             "parsed": parsed.model_dump(mode="json"),
             "retried": extraction.retried,
             "sum_gap": str(extraction.sum_gap),
+            "unallocated": list(extraction.unallocated),
         }
         receipt.status = "pending_review"
         for sort_index, item, final_total in _positive_ocr_items(parsed.items):

@@ -11,8 +11,10 @@ from app.schemas.ocr import (
     USER_PROMPT,
     USER_PROMPT_MULTI_PAGE,
     OCRLineItemExtracted,
+    ReceiptOCRRead,
     ReceiptOCRResult,
 )
+from app.services.promo_allocation import settle_receipt
 from app.services.receipt_math import (
     ReceiptExtraction,
     build_retry_user_content,
@@ -97,7 +99,7 @@ def _dummy_extraction() -> ReceiptExtraction:
     return ReceiptExtraction(result=report.result, retried=False, sum_gap=report.sum_gap)
 
 
-async def _parse_receipt(client: object, model: str, user_content: list[dict]) -> ReceiptOCRResult:
+async def _parse_receipt(client: object, model: str, user_content: list[dict]) -> ReceiptOCRRead:
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT.strip()},
         {"role": "user", "content": user_content},
@@ -105,9 +107,9 @@ async def _parse_receipt(client: object, model: str, user_content: list[dict]) -
     response_format = {
         "type": "json_schema",
         "json_schema": {
-            "name": ReceiptOCRResult.__name__,
+            "name": ReceiptOCRRead.__name__,
             "strict": True,
-            "schema": ReceiptOCRResult.model_json_schema(),
+            "schema": ReceiptOCRRead.model_json_schema(),
         },
     }
     extra_body = {"provider": {"require_parameters": True}}
@@ -121,7 +123,7 @@ async def _parse_receipt(client: object, model: str, user_content: list[dict]) -
         )
         content = response.choices[0].message.content or ""
         try:
-            return ReceiptOCRResult.model_validate_json(content)
+            return ReceiptOCRRead.model_validate_json(content)
         except ValidationError as exc:
             if attempt == 1:
                 raise
@@ -131,7 +133,7 @@ async def _parse_receipt(client: object, model: str, user_content: list[dict]) -
                 {"role": "assistant", "content": content},
                 {"role": "user", "content": SCHEMA_REPAIR.format(errors=errors)},
             ]
-    raise RuntimeError("No parsed ReceiptOCRResult in response")
+    raise RuntimeError("No parsed ReceiptOCRRead in response")
 
 
 async def extract_receipt_items(images_base64: list[str]) -> ReceiptExtraction:
@@ -158,23 +160,28 @@ async def extract_receipt_items(images_base64: list[str]) -> ReceiptExtraction:
         api_key=settings.openrouter_api_key,
         timeout=120.0,
     )
-    first_raw = await _parse_receipt(
+    first_read = await _parse_receipt(
         client,
         settings.openrouter_model,
         _image_content(prompt, images_base64),
     )
-    first = reconcile_receipt(first_raw)
+    first = settle_receipt(first_read)
     chosen = first
     retried = False
     if first.needs_retry:
         retried = True
         try:
-            second_raw = await _parse_receipt(
+            second_read = await _parse_receipt(
                 client,
                 settings.openrouter_model,
-                build_retry_user_content(images_base64, first.result, first),
+                build_retry_user_content(images_base64, first_read, first),
             )
-            chosen = prefer_attempt(first, reconcile_receipt(second_raw))
+            chosen = prefer_attempt(first, settle_receipt(second_read))
         except Exception:
             chosen = first
-    return ReceiptExtraction(result=chosen.result, retried=retried, sum_gap=chosen.sum_gap)
+    return ReceiptExtraction(
+        result=chosen.result,
+        retried=retried,
+        sum_gap=chosen.sum_gap,
+        unallocated=chosen.unallocated,
+    )
