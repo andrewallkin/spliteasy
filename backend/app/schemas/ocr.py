@@ -5,7 +5,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.services.currency import normalize_currency
 
 SYSTEM_PROMPT = """
 You read South African retail receipts into rows.
@@ -135,6 +137,7 @@ Extract every product, promo, and fee row, and the printed gross total.
 - merchant_name is the store name when it is printed,
   for example "Checkers" or "Clicks".
   Use "Unknown" when the photos do not show it.
+- currency is an ISO 4217 code. A printed "R" is "ZAR".
 """
 
 USER_PROMPT_MULTI_PAGE = """
@@ -180,9 +183,16 @@ class ReceiptOCRRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     merchant_name: str = Field(..., description="Store name, or Unknown when it is not printed.")
-    currency: str = Field(..., description="Currency code, usually ZAR.")
+    currency: str = Field(..., description="ISO 4217 code. Use ZAR when the receipt prints R.")
     total_amount: str = Field(..., description="Printed gross total.")
     rows: list[OCRReadRow]
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _currency_code(cls, value: object) -> str:
+        if value is None:
+            return "ZAR"
+        return normalize_currency(str(value))
 
 
 class OCRLineItemExtracted(BaseModel):
@@ -225,9 +235,16 @@ class ReceiptOCRResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     merchant_name: str = Field("Unknown", description="Store name. Default to 'Unknown'.")
-    currency: str = Field("ZAR", description="Currency code. Default to 'ZAR'.")
+    currency: str = Field("ZAR", description="ISO 4217 code. Use ZAR when the receipt prints R.")
     total_amount: str = Field(..., description="Grand total (Gross amount).")
     items: list[OCRLineItemExtracted] = Field(default_factory=list)
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _currency_code(cls, value: object) -> str:
+        if value is None:
+            return "ZAR"
+        return normalize_currency(str(value))
 
     @model_validator(mode="after")
     def synthetic_total_line(self) -> ReceiptOCRResult:
