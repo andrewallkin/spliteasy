@@ -25,6 +25,7 @@ from app.schemas.receipts import (
     ReceiptShareOut,
     ReceiptUpdateItemsRequest,
 )
+from app.services.currency import normalize_currency
 from app.services.gcs import GCSService, get_gcs_service
 from app.services.mark_paid import (
     build_receipt_share_lines,
@@ -251,7 +252,7 @@ async def patch_receipt(
     if payload.total_amount is not None:
         receipt.total_amount = payload.total_amount
     if payload.currency is not None:
-        receipt.currency = payload.currency or None
+        receipt.currency = normalize_currency(payload.currency) if payload.currency.strip() else None
 
     await db.commit()
     await db.refresh(receipt)
